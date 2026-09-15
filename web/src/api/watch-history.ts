@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
 import type { LibrarySource } from '@/api/tasks'
+import { watchSessions } from '@/features/player/watch-progress'
 
 export const WATCH_HISTORY_PAGE_SIZE = 20
 
@@ -12,6 +13,9 @@ export type WatchSession = {
   position: number
   duration: number
 }
+
+export type WatchResume = Omit<WatchSession, 'session_id'>
+export type WatchHistoryScope = { account_id: string; directory_id: string }
 
 export type WatchProgress = {
   session_id: string
@@ -57,7 +61,10 @@ export function useWatchHistory(page: number) {
 }
 
 export function saveWatchProgress(id: number, progress: WatchProgress, keepalive: boolean) {
-  return apiPut<null>(`/api/library/history/${id}/progress`, progress, { keepalive })
+  return apiPut<null>(`/api/library/history/${id}/progress`, progress, {
+    keepalive,
+    signal: AbortSignal.timeout(10_000)
+  })
 }
 
 type HistoryRemoval = { source: LibrarySource } & (
@@ -80,7 +87,11 @@ export function useRemoveWatchHistory() {
           })
         : apiDelete<{ removed: number }>(`/api/library/history?${new URLSearchParams(scope)}`)
     },
-    onSuccess: async () => {
+    onSuccess: async (_, removal) => {
+      watchSessions.clear(
+        { account_id: removal.source.account_id, directory_id: removal.source.directory.id },
+        removal.type === 'selected' ? removal.ids : undefined
+      )
       await queryClient.cancelQueries({ queryKey: watchHistoryKeys.all })
       return queryClient.invalidateQueries({ queryKey: watchHistoryKeys.all })
     }

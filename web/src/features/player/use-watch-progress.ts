@@ -2,22 +2,36 @@ import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 
 import { ApiError } from '@/api/client'
-import { saveWatchProgress, type WatchSession } from '@/api/watch-history'
-import { createWatchProgressWriter } from './watch-progress'
+import { useMarkMovieWatched } from '@/api/library'
+import {
+  saveWatchProgress,
+  type WatchHistoryScope,
+  type WatchResume,
+  type WatchSession
+} from '@/api/watch-history'
+import { watchSessions } from './watch-progress'
 
-export function useWatchProgress(session: WatchSession | undefined, fileID: string) {
-  const historyID = session?.id
-  const sessionID = session?.session_id
+export function useWatchProgress(
+  movieID: number,
+  source: WatchHistoryScope,
+  fileID: string,
+  resume: WatchResume | undefined
+) {
+  const { mutateAsync: markWatched } = useMarkMovieWatched()
   const writer = useMemo(
     () =>
-      historyID === undefined || sessionID === undefined
-        ? undefined
-        : createPlayerProgressWriter(historyID, sessionID, fileID),
-    [historyID, sessionID, fileID]
+      createPlayerProgressWriter(
+        movieID,
+        source,
+        fileID,
+        resume,
+        async () => (await markWatched({ movieID, source })).history
+      ),
+    [movieID, source, fileID, resume, markWatched]
   )
 
   useEffect(() => {
-    if (!writer) return
+    void writer.start().catch(() => {})
     const flush = () => {
       void writer.flush(true)
     }
@@ -38,14 +52,28 @@ export function useWatchProgress(session: WatchSession | undefined, fileID: stri
   return writer
 }
 
-function createPlayerProgressWriter(historyID: number, sessionID: string, fileID: string) {
+function createPlayerProgressWriter(
+  movieID: number,
+  source: WatchHistoryScope,
+  fileID: string,
+  resume: WatchResume | undefined,
+  start: () => Promise<WatchSession>
+) {
   let active = true
+  let registered = false
   let errorShown = false
-  const toastID = `history:progress:${historyID}`
-  return createWatchProgressWriter({
-    sessionID,
+  const toastID = `history:progress:${movieID}`
+  return watchSessions.create({
+    movieID,
+    source,
+    resume,
     fileID,
-    write: async (progress, keepalive) => {
+    start: async () => {
+      const session = await start()
+      registered = true
+      return session
+    },
+    write: async (historyID, progress, keepalive) => {
       if (!active) return
       try {
         await saveWatchProgress(historyID, progress, keepalive)
@@ -59,7 +87,7 @@ function createPlayerProgressWriter(historyID: number, sessionID: string, fileID
       }
     },
     onError: () => {
-      if (errorShown) return
+      if (!registered || errorShown) return
       errorShown = true
       toast.error('播放进度暂未同步', { id: toastID, description: '恢复连接后会重试保存。' })
     },

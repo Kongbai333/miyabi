@@ -26,7 +26,6 @@ test('frequent playback events save at most once per interval and flush the late
   let now = 0
   const requests = []
   const writer = createWatchProgressWriter({
-    sessionID: 'session',
     fileID: 'video',
     now: () => now,
     write: async (progress, keepalive) => requests.push({ ...progress, keepalive })
@@ -63,7 +62,6 @@ test('closing sends the final snapshot even while an older request is pending', 
   let now = 0
   const requests = []
   const writer = createWatchProgressWriter({
-    sessionID: 'session',
     fileID: 'video',
     now: () => now,
     write: (progress, keepalive) =>
@@ -95,7 +93,6 @@ test('failed writes can retry without accepting invalid or unbounded media value
   let failures = 0
   const requests = []
   const writer = createWatchProgressWriter({
-    sessionID: 'session',
     fileID: 'video',
     write: async progress => {
       requests.push(progress)

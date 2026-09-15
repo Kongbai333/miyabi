@@ -82,7 +82,7 @@ func TestWatchProgressPreservesResumeAndRejectsStaleSessionsAndVersions(t *testi
 	library, _, payload := libraryFixture(t)
 	ctx := t.Context()
 	film, video := historyFilm(t, library, payload.Source, "ABP-001")
-	session, err := library.MarkWatched(ctx, film.ID)
+	session, err := library.MarkWatched(ctx, film.ID, testWatchScope(payload.Source))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestWatchProgressPreservesResumeAndRejectsStaleSessionsAndVersions(t *testi
 	if err := library.SaveWatchProgress(ctx, session.ID, progress); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := library.MarkWatched(ctx, film.ID)
+	reopened, err := library.MarkWatched(ctx, film.ID, testWatchScope(payload.Source))
 	if err != nil || reopened.ID != session.ID || reopened.SessionID == session.SessionID || reopened.Position != 30 || reopened.Duration != 600 || reopened.FileID != video.FileID {
 		t.Fatalf("reopening lost resume information: %+v, %v", reopened, err)
 	}
@@ -132,7 +132,7 @@ func TestWatchProgressValidatesFilesNumbersAndMountedSource(t *testing.T) {
 	ctx := t.Context()
 	film, video := historyFilm(t, library, payload.Source, "ABP-001")
 	_, otherVideo := historyFilm(t, library, payload.Source, "ABP-002")
-	session, err := library.MarkWatched(ctx, film.ID)
+	session, err := library.MarkWatched(ctx, film.ID, testWatchScope(payload.Source))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,11 +171,11 @@ func TestClearingHistoryPreservesMoviesAndCannotBeUndoneByLateProgress(t *testin
 	ctx := t.Context()
 	first, video := historyFilm(t, library, payload.Source, "ABP-001")
 	second, _ := historyFilm(t, library, payload.Source, "ABP-002")
-	firstSession, err := library.MarkWatched(ctx, first.ID)
+	firstSession, err := library.MarkWatched(ctx, first.ID, testWatchScope(payload.Source))
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondSession, err := library.MarkWatched(ctx, second.ID)
+	secondSession, err := library.MarkWatched(ctx, second.ID, testWatchScope(payload.Source))
 	if err != nil {
 		t.Fatal(err)
 	}

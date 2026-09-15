@@ -9,6 +9,10 @@ import (
 	"github.com/ppxb/miyabi/internal/nfo"
 )
 
+func testWatchScope(source LibrarySource) WatchHistoryScope {
+	return WatchHistoryScope{AccountID: source.AccountID, DirectoryID: source.Directory.ID}
+}
+
 func TestMarkWatchedIsLocalAndKeepsMovieStateIdempotent(t *testing.T) {
 	library, queued, payload := libraryFixture(t)
 	ctx := t.Context()
@@ -22,7 +26,7 @@ func TestMarkWatchedIsLocalAndKeepsMovieStateIdempotent(t *testing.T) {
 	}
 	before := library.tasks.Revisions()
 	// The fixture has no 115 client; recording an open must work locally.
-	session, err := library.MarkWatched(ctx, film.ID)
+	session, err := library.MarkWatched(ctx, film.ID, testWatchScope(payload.Source))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +39,7 @@ func TestMarkWatchedIsLocalAndKeepsMovieStateIdempotent(t *testing.T) {
 	if err != nil || len(page.Movies) != 1 || !page.Movies[0].Watched {
 		t.Fatalf("library did not return the saved watch state: %+v, %v", page, err)
 	}
-	nextSession, err := library.MarkWatched(ctx, film.ID)
+	nextSession, err := library.MarkWatched(ctx, film.ID, testWatchScope(payload.Source))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,19 +67,42 @@ func TestMarkWatchedRequiresAMovieInTheMountedSource(t *testing.T) {
 				SetAccountID(scenario.account).SetRootID(scenario.root).SetMovie(film).ExecX(ctx)
 		}
 		before := library.tasks.Revisions()
-		if _, err := library.MarkWatched(ctx, film.ID); !ent.IsNotFound(err) {
+		if _, err := library.MarkWatched(ctx, film.ID, testWatchScope(payload.Source)); !ent.IsNotFound(err) {
 			t.Fatalf("movie %s outside the mounted source was accepted: %v", film.Code, err)
 		}
 		if library.database.Movie.GetX(ctx, film.ID).Watched || library.tasks.Revisions() != before {
 			t.Fatal("rejected watch request changed movie state")
 		}
 	}
-	if _, err := library.MarkWatched(ctx, 99999); !ent.IsNotFound(err) {
+	if _, err := library.MarkWatched(ctx, 99999, testWatchScope(payload.Source)); !ent.IsNotFound(err) {
 		t.Fatalf("missing movie was accepted: %v", err)
 	}
 	library.database.Setting.Delete().ExecX(ctx)
-	if _, err := library.MarkWatched(ctx, 1); !errors.Is(err, ErrMediaDirectoryRequired) {
+	if _, err := library.MarkWatched(ctx, 1, testWatchScope(payload.Source)); !errors.Is(err, ErrMediaDirectoryRequired) {
 		t.Fatalf("unmounted library was accepted: %v", err)
+	}
+}
+
+func TestMarkWatchedRejectsTheSourceOfAnOlderOpening(t *testing.T) {
+	library, queued, payload := libraryFixture(t)
+	ctx := t.Context()
+	if err := library.indexScanPage(ctx, queued.ID, "first", "/Movies",
+		[]scanVideo{fixtureVideo("video", "ABP-001.mp4")}, &payload); err != nil {
+		t.Fatal(err)
+	}
+	film := library.database.Movie.Query().OnlyX(ctx)
+	before := library.tasks.Revisions()
+	for _, scope := range []WatchHistoryScope{
+		{AccountID: "old-account", DirectoryID: payload.Source.Directory.ID},
+		{AccountID: payload.Source.AccountID, DirectoryID: "old-directory"},
+	} {
+		if _, err := library.MarkWatched(ctx, film.ID, scope); !errors.Is(err, ErrWatchHistorySourceChanged) {
+			t.Fatalf("stale opening source accepted: %v", err)
+		}
+	}
+	if library.database.Movie.GetX(ctx, film.ID).Watched || library.database.WatchHistory.Query().CountX(ctx) != 0 ||
+		library.tasks.Revisions() != before {
+		t.Fatal("a stale opening wrote watch state into the current source")
 	}
 }
 
@@ -87,7 +114,7 @@ func TestWatchedStateSurvivesScrapingDownloadIndexingAndRescan(t *testing.T) {
 		t.Fatal(err)
 	}
 	film := library.database.Movie.Query().OnlyX(ctx)
-	if _, err := library.MarkWatched(ctx, film.ID); err != nil {
+	if _, err := library.MarkWatched(ctx, film.ID, testWatchScope(payload.Source)); err != nil {
 		t.Fatal(err)
 	}
 	doc := nfo.Movie{Code: film.Code, Title: "Updated title",

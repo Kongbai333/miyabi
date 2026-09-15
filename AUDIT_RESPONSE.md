@@ -149,3 +149,11 @@ DOM 事件派发分别处理捕获和冒泡监听器；即使 `event.target` 就
 没有运行 race detector、覆盖率统计、线上负载测试或真实 115/JavDB 账号操作。因此原报告“无 race”“整体质量高于平均”等绝对或比较性结论，不在本次可证明的范围内。测试通过说明已执行场景通过，不等于不存在其他缺陷。
 
 本次业务代码和原审计报告未改动。新增本答复文档；可复现实验脚本与日志保存在已忽略的 `.tmp` 下，包括 [Go 实验](C:/Users/Administrator/Desktop/miyabi/.tmp/audit-review/probe.go)、[状态查询实验](C:/Users/Administrator/Desktop/miyabi/.tmp/audit-review/movie-state-probe.mjs)、[Go 测试日志](C:/Users/Administrator/Desktop/miyabi/.tmp/audit-go-tests.log)、[前端测试日志](C:/Users/Administrator/Desktop/miyabi/.tmp/audit-web-tests.log)。
+
+**2026-09-15：播放启动等待链整改进展**
+
+播放文件接口现在只读返回当前账号、目录及续播文件和位置；播放器据此选定文件并开始加载，不再等待“标记已看”写入或其重试。观看记录在后台创建，写入绑定打开时的账号与目录，防止延迟请求写入切换后的媒体源。每次打开使用独立查询标识，迟到的记录响应不再改变已经开始播放的文件或续播位置。
+
+后台会话创建等待前一次播放的进度写入完成；同一会话的进度请求仍可并发，以保留页面关闭时立即发送 keepalive 的行为。创建会话之前的进度先缓存在内存，快速重开可使用尚未保存的位置；缓存按账号、目录、影片和历史记录身份隔离，并随成功保存或主动清理历史释放。写入失败会提示记录未保存，不阻塞播放。
+
+已通过 Go 全量测试、64 项前端测试、TypeScript 检查、Oxlint 和 Vite 生产构建。本环境中前端测试使用 `--experimental-test-isolation=none`，构建使用 `--configLoader native`，以避免沙箱对子进程启动的限制。新增覆盖包括只读续播、源切换拒绝、慢写入、失败恢复、首次创建历史时的快速重开、旧进度顺序和关闭时的即时 keepalive。浏览器交互由用户验证，尚未记录浏览器实测结论。

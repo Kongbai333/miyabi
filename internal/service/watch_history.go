@@ -34,6 +34,14 @@ type WatchSession struct {
 	Duration  float64 `json:"duration"`
 }
 
+// WatchResume is read without creating a history entry or rotating its session.
+type WatchResume struct {
+	ID       int     `json:"id"`
+	FileID   string  `json:"file_id"`
+	Position float64 `json:"position"`
+	Duration float64 `json:"duration"`
+}
+
 type WatchProgress struct {
 	SessionID string  `json:"session_id" binding:"required,uuid"`
 	FileID    string  `json:"file_id" binding:"required,max=128"`
@@ -68,7 +76,7 @@ func historyScope(source LibrarySource) predicate.WatchHistory {
 
 // Opening a movie creates one source-scoped history entry and starts a fresh
 // progress session. Reopening preserves its saved position and watched badge.
-func (service *LibraryService) MarkWatched(ctx context.Context, movieID int) (WatchSession, error) {
+func (service *LibraryService) MarkWatched(ctx context.Context, movieID int, scope WatchHistoryScope) (WatchSession, error) {
 	var result WatchSession
 	libraryChanged := false
 	err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
@@ -78,6 +86,9 @@ func (service *LibraryService) MarkWatched(ctx context.Context, movieID int) (Wa
 		}
 		if source == nil {
 			return ErrMediaDirectoryRequired
+		}
+		if source.AccountID != scope.AccountID || source.Directory.ID != scope.DirectoryID {
+			return ErrWatchHistorySourceChanged
 		}
 		record, err := tx.Movie.Query().Where(movie.IDEQ(movieID), movie.HasFilesWith(libraryFiles(*source))).
 			Select(movie.FieldID, movie.FieldWatched).Only(ctx)

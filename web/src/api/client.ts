@@ -42,7 +42,7 @@ export function apiDelete<T>(path: string): Promise<T> {
 export function apiPut<T>(
   path: string,
   body: unknown,
-  options?: Pick<RequestInit, 'keepalive'>
+  options?: Pick<RequestInit, 'keepalive' | 'signal'>
 ): Promise<T> {
   return request<T>(path, {
     ...options,

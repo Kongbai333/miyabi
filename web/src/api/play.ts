@@ -3,11 +3,14 @@ import { useEffect } from 'react'
 
 import { apiDelete, apiGet } from '@/api/client'
 import type { LibraryFile } from '@/api/library'
+import type { WatchHistoryScope, WatchResume } from '@/api/watch-history'
 
 export type PlayFiles = {
   code: string
   title: string
   files: LibraryFile[]
+  source: WatchHistoryScope
+  resume?: WatchResume
 }
 
 export type PlaySource = {
@@ -29,18 +32,18 @@ const playQueryOptions = {
   refetchOnReconnect: false
 } as const
 
-export function usePlayFiles(movieID: number) {
+export function usePlayFiles(movieID: number, openingID: string) {
   return useQuery({
     ...playQueryOptions,
-    queryKey: ['play', 'files', movieID],
+    queryKey: ['play', 'files', movieID, openingID],
     queryFn: ({ signal }) => apiGet<PlayFiles>('/api/play/files', { movie_id: movieID }, signal)
   })
 }
 
-export function usePlayback(fileID: string) {
+export function usePlayback(fileID: string, openingID: string) {
   const query = useQuery({
     ...playQueryOptions,
-    queryKey: ['play', 'source', fileID],
+    queryKey: ['play', 'source', fileID, openingID],
     queryFn: ({ signal }) =>
       apiGet<Playback>(`/api/play/${encodeURIComponent(fileID)}`, undefined, signal)
   })

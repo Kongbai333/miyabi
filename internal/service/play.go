@@ -13,13 +13,16 @@ import (
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
+	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
 type PlayFiles struct {
-	Code  string        `json:"code"`
-	Title string        `json:"title"`
-	Files []LibraryFile `json:"files"`
+	Code   string            `json:"code"`
+	Title  string            `json:"title"`
+	Files  []LibraryFile     `json:"files"`
+	Source WatchHistoryScope `json:"source"`
+	Resume *WatchResume      `json:"resume,omitempty"`
 }
 
 type MediaSource struct {
@@ -79,6 +82,16 @@ func (service *PlayService) Files(ctx context.Context, movieID int) (PlayFiles, 
 	result := PlayFiles{Code: record.Code, Title: record.Title, Files: make([]LibraryFile, 0, len(record.Edges.Files))}
 	for _, entry := range record.Edges.Files {
 		result.Files = append(result.Files, LibraryFile{ID: entry.FileID, Name: entry.Name, Path: entry.Path, Size: entry.Size})
+	}
+	result.Source = WatchHistoryScope{AccountID: source.AccountID, DirectoryID: source.Directory.ID}
+	history, err := service.library.database.WatchHistory.Query().
+		Where(historyScope(*source), watchhistory.MovieIDEQ(movieID)).
+		Select(watchhistory.FieldID, watchhistory.FieldFileID, watchhistory.FieldPosition, watchhistory.FieldDuration).Only(ctx)
+	if err != nil && !ent.IsNotFound(err) {
+		return PlayFiles{}, fmt.Errorf("read playback resume: %w", err)
+	}
+	if history != nil {
+		result.Resume = &WatchResume{ID: history.ID, FileID: history.FileID, Position: history.Position, Duration: history.Duration}
 	}
 	return result, nil
 }

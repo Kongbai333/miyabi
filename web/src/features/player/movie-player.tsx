@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import {
   isHLSProvider,
   MediaPlayer,
@@ -9,8 +9,8 @@ import {
 } from '@vidstack/react'
 import { DefaultVideoLayout } from '@vidstack/react/player/layouts/default'
 
-import { usePlayback, usePlayFiles } from '@/api/play'
-import type { WatchSession } from '@/api/watch-history'
+import { usePlayback, usePlayFiles, type PlayFiles } from '@/api/play'
+import type { WatchHistoryScope, WatchResume } from '@/api/watch-history'
 import { watchResumePosition } from '@/lib/watch-progress'
 import {
   Select,
@@ -32,52 +32,87 @@ import { playerTranslations } from './translations'
 import { PlayerTimeSlider, PlayerVolumeSlider } from './sliders'
 import { useHoldSpeed } from './use-hold-speed'
 import { useWatchProgress } from './use-watch-progress'
+import { watchSessions } from './watch-progress'
 
 import '@vidstack/react/player/styles/default/theme.css'
 import '@vidstack/react/player/styles/default/layouts/video.css'
 import './player.css'
 
-export default function MoviePlayer({
-  movieID,
-  history,
-  historyReady
-}: {
-  movieID: number
-  history?: WatchSession
-  historyReady: boolean
-}) {
-  const files = usePlayFiles(movieID)
+export default function MoviePlayer({ movieID }: { movieID: number }) {
+  const openingID = useId()
+  const files = usePlayFiles(movieID, openingID)
 
-  if (files.isPending || !historyReady) return <PlayerLoading />
+  if (files.isPending) return <PlayerLoading />
   if (files.isError) {
     return <PlayerError error={files.error} onRetry={() => void files.refetch()} />
   }
-  const file = files.data.files.find(item => item.id === history?.file_id) ?? files.data.files[0]
+  return (
+    <MoviePlayback
+      key={files.dataUpdatedAt}
+      movieID={movieID}
+      openingID={openingID}
+      files={files.data}
+      onRetry={() => void files.refetch()}
+    />
+  )
+}
+
+function MoviePlayback({
+  movieID,
+  openingID,
+  files,
+  onRetry
+}: {
+  movieID: number
+  openingID: string
+  files: PlayFiles
+  onRetry: () => void
+}) {
+  // Freeze file selection and resume for this opening. A late watch write must
+  // never switch files or seek backwards after playback has already started.
+  const [{ file, history, source, title }] = useState(() => {
+    const history = watchSessions.resume(movieID, files.source, files.resume)
+    return {
+      history,
+      source: files.source,
+      title: files.title,
+      file: files.files.find(item => item.id === history?.file_id) ?? files.files[0]
+    }
+  })
   if (!file) {
     return (
-      <PlayerError
-        title={files.data.title}
-        message="没有可播放的文件，请重新扫描媒体库。"
-        onRetry={() => void files.refetch()}
-      />
+      <PlayerError title={title} message="没有可播放的文件，请重新扫描媒体库。" onRetry={onRetry} />
     )
   }
 
   return (
-    <PlaybackPlayer key={file.id} title={files.data.title} fileID={file.id} history={history} />
+    <PlaybackPlayer
+      title={title}
+      movieID={movieID}
+      openingID={openingID}
+      source={source}
+      fileID={file.id}
+      history={history}
+    />
   )
 }
 
 function PlaybackPlayer({
   title,
+  movieID,
+  openingID,
+  source: watchSource,
   fileID,
   history
 }: {
   title: string
+  movieID: number
+  openingID: string
+  source: WatchHistoryScope
   fileID: string
-  history?: WatchSession
+  history?: WatchResume
 }) {
-  const playback = usePlayback(fileID)
+  const playback = usePlayback(fileID, openingID)
   const [selectedSrc, setSelectedSrc] = useState<string>()
   const [player, setPlayer] = useState<MediaPlayerInstance | null>(null)
   const holdSpeed = useHoldSpeed(player)
@@ -87,7 +122,7 @@ function PlaybackPlayer({
   const position = useRef(initialPosition)
   const resumeTime = useRef<number | null>(initialPosition)
   const playing = useRef(false)
-  const progress = useWatchProgress(history, fileID)
+  const progress = useWatchProgress(movieID, watchSource, fileID, history)
   const sources = playback.data?.sources ?? []
   const source = sources.find(item => item.src === selectedSrc) ?? sources[0]
   const loading = playback.isPending || playback.isFetching

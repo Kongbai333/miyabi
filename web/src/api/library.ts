@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { ApiError, apiGet, apiPost, apiPut } from '@/api/client'
 import { panKeys, type PanAccountStatus } from '@/api/pan'
 import { taskKeys, type LibrarySource, type ScanTask } from '@/api/tasks'
-import type { WatchSession } from '@/api/watch-history'
+import type { WatchHistoryScope, WatchSession } from '@/api/watch-history'
 import { notifyScanTask, notifyTaskError } from '@/features/tasks/task-toast'
 
 export const LIBRARY_PAGE_SIZE = 20
@@ -60,10 +60,11 @@ export function useLibraryMovies(page: number) {
 export function useMarkMovieWatched() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (movieID: number) =>
+    mutationFn: ({ movieID, source }: { movieID: number; source: WatchHistoryScope }) =>
       apiPut<{ id: number; watched: boolean; history: WatchSession }>(
         `/api/library/movies/${movieID}/watched`,
-        {}
+        source,
+        { signal: AbortSignal.timeout(10_000) }
       ),
     retry: (failures, error) =>
       failures < 2 && (!(error instanceof ApiError) || error.status >= 500),
@@ -82,9 +83,9 @@ export function useMarkMovieWatched() {
       void queryClient.invalidateQueries({ queryKey: libraryKeys.all })
     },
     onError: () => {
-      toast.error('观看状态保存失败', {
+      toast.error('观看记录保存失败', {
         id: 'library:watched-error',
-        description: '请检查后端连接，稍后重新打开影片即可重试。'
+        description: '播放仍可继续。请检查后端连接，稍后重新打开影片重试。'
       })
     }
   })

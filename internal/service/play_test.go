@@ -85,6 +85,36 @@ func TestPlayFilesUsesLocalIDForUnfamiliarNumbers(t *testing.T) {
 	}
 }
 
+func TestPlayFilesReadsResumeWithoutRecordingWatch(t *testing.T) {
+	service, source := playFixture(t)
+	db, ctx := service.library.database, t.Context()
+	movieID := db.Movie.Query().Where(movie.CodeEQ("ABP-001")).OnlyIDX(ctx)
+	files, err := service.Files(ctx, movieID)
+	if err != nil || files.Resume != nil || files.Source != testWatchScope(source) || db.WatchHistory.Query().CountX(ctx) != 0 {
+		t.Fatalf("reading an unwatched movie created history: %+v, %v", files, err)
+	}
+	history := db.WatchHistory.Create().SetAccountID(source.AccountID).SetRootID(source.Directory.ID).
+		SetMovieID(movieID).SetSessionID("saved-session").SetFileID("102").SetPosition(120).SetDuration(600).SaveX(ctx)
+	db.WatchHistory.Create().SetAccountID("other-account").SetRootID(source.Directory.ID).
+		SetMovieID(movieID).SetSessionID("other-session").SetFileID("101").SetPosition(500).SetDuration(600).ExecX(ctx)
+	before := service.library.tasks.Revisions()
+	// Readiness must remain available even while every watch mutation fails.
+	db.Use(func(ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(context.Context, ent.Mutation) (ent.Value, error) {
+			return nil, errors.New("writes unavailable")
+		})
+	})
+	files, err = service.Files(ctx, movieID)
+	if err != nil || files.Resume == nil || files.Resume.ID != history.ID || files.Resume.FileID != "102" ||
+		files.Resume.Position != 120 || files.Resume.Duration != 600 {
+		t.Fatalf("read-only playback lost the saved file or position: %+v, %v", files, err)
+	}
+	if db.Movie.GetX(ctx, movieID).Watched || db.WatchHistory.GetX(ctx, history.ID).SessionID != "saved-session" ||
+		service.library.tasks.Revisions() != before {
+		t.Fatal("reading playback mutated the badge, session, or revisions")
+	}
+}
+
 func TestPlaybackRejectsSourceChangesAndUnknownResources(t *testing.T) {
 	for _, change := range []string{"login", "logout", "directory", "account", "release"} {
 		t.Run(change, func(t *testing.T) {

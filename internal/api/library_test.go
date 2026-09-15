@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/service"
@@ -16,8 +17,9 @@ import (
 
 type libraryWatchStub struct {
 	LibraryManager
-	id  int
-	err error
+	id    int
+	err   error
+	scope service.WatchHistoryScope
 }
 
 type libraryPageStub struct {
@@ -50,8 +52,9 @@ func TestLibraryMoviesDefaultToTwentyPerPage(t *testing.T) {
 	}
 }
 
-func (stub *libraryWatchStub) MarkWatched(_ context.Context, id int) (service.WatchSession, error) {
+func (stub *libraryWatchStub) MarkWatched(_ context.Context, id int, scope service.WatchHistoryScope) (service.WatchSession, error) {
 	stub.id = id
+	stub.scope = scope
 	return service.WatchSession{ID: 7, SessionID: "session", FileID: "video", Position: 60, Duration: 600}, stub.err
 }
 
@@ -71,14 +74,19 @@ func TestLibraryWatchedEndpointValidatesIDsAndReturnsSavedState(t *testing.T) {
 		{name: "missing movie", id: "42", err: fs.ErrNotExist, status: http.StatusNotFound, called: true},
 		{name: "unmounted", id: "42", err: service.ErrMediaDirectoryRequired, status: http.StatusBadRequest, called: true},
 		{name: "write failed", id: "42", err: errors.New("write failed"), status: http.StatusInternalServerError, called: true},
+		{name: "source changed", id: "42", err: service.ErrWatchHistorySourceChanged, status: http.StatusConflict, called: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			stub := &libraryWatchStub{err: scenario.err}
 			router := NewRouter(Dependencies{Library: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 			response := httptest.NewRecorder()
-			router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/library/movies/"+scenario.id+"/watched", nil))
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/library/movies/"+scenario.id+"/watched",
+				strings.NewReader(`{"account_id":"account","directory_id":"directory"}`)))
 			if response.Code != scenario.status || (stub.id != 0) != scenario.called {
 				t.Fatalf("status=%d called=%d body=%s", response.Code, stub.id, response.Body)
+			}
+			if scenario.called && (stub.scope.AccountID != "account" || stub.scope.DirectoryID != "directory") {
+				t.Fatalf("watch source was not forwarded: %+v", stub.scope)
 			}
 			if scenario.status == http.StatusOK {
 				var state struct {
@@ -89,6 +97,20 @@ func TestLibraryWatchedEndpointValidatesIDsAndReturnsSavedState(t *testing.T) {
 				if err := json.Unmarshal(response.Body.Bytes(), &state); err != nil || state.ID != 42 || !state.Watched || state.History.Position != 60 {
 					t.Fatalf("incorrect watch response: %s, %v", response.Body, err)
 				}
+			}
+		})
+	}
+}
+
+func TestLibraryWatchedEndpointRequiresTheOpeningSource(t *testing.T) {
+	for _, body := range []string{"", `{}`, `{"account_id":"account"}`, `{"account_id":"account","directory_id":7}`} {
+		t.Run(body, func(t *testing.T) {
+			stub := &libraryWatchStub{}
+			router := NewRouter(Dependencies{Library: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/library/movies/42/watched", strings.NewReader(body)))
+			if response.Code != http.StatusBadRequest || stub.id != 0 {
+				t.Fatalf("invalid opening source reached watch recording: status=%d id=%d body=%s", response.Code, stub.id, response.Body)
 			}
 		})
 	}

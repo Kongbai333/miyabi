@@ -1,11 +1,11 @@
-import type { WatchSession } from '@/api/watch-history'
+import type { WatchResume } from '@/api/watch-history'
 
 export function watchProgressPercent(position: number, duration: number) {
   if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return 0
   return Math.min(100, Math.max(0, (position / duration) * 100))
 }
 
-export function watchResumePosition(session: WatchSession | undefined, fileID: string) {
+export function watchResumePosition(session: WatchResume | undefined, fileID: string) {
   if (
     !session ||
     session.file_id !== fileID ||
