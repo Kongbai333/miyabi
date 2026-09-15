@@ -327,6 +327,53 @@ func TestResolveMovieIDRequiresExactNormalizedMatch(t *testing.T) {
 	}
 }
 
+func TestResolveMovieIDDuplicateMatches(t *testing.T) {
+	tests := []struct {
+		name    string
+		movies  string
+		wantID  string
+		wantErr string
+	}{
+		{
+			name: "same ID with exact and normalized duplicates",
+			movies: `[
+				{"id":"movie-exact","number":"ABP-123"},
+				{"id":"movie-similar","number":"ABP-1234"},
+				{"id":"movie-exact","number":"abp123"},
+				{"id":"movie-exact","number":"ABP-123"}
+			]`,
+			wantID: "movie-exact",
+		},
+		{
+			name: "different ID after duplicate matches",
+			movies: `[
+				{"id":"movie-exact","number":"ABP-123"},
+				{"id":"movie-exact","number":"ABP-123"},
+				{"id":"movie-other","number":"ABP_123"}
+			]`,
+			wantErr: "catalogue number ABP-123 has multiple exact JavDB matches",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &fixtureTransport{responses: map[string][]byte{
+				"/api/v2/search|zh-TW": []byte(`{"success":1,"data":{"movies":` + test.movies + `}}`),
+			}}
+			client := clientWithTransport(transport)
+			id, err := client.ResolveMovieID(t.Context(), "abp123")
+			if test.wantErr != "" {
+				if err == nil || err.Error() != test.wantErr || id != "" {
+					t.Fatalf("id = %q, error = %v; want empty ID and error %q", id, err, test.wantErr)
+				}
+				return
+			}
+			if err != nil || id != test.wantID {
+				t.Fatalf("id = %q, error = %v; want %q", id, err, test.wantID)
+			}
+		})
+	}
+}
+
 func TestAnimeDetailAndCatalogueQueriesUseTheAnimeSection(t *testing.T) {
 	transport := &fixtureTransport{responses: map[string][]byte{
 		"/api/v4/movies/anime|zh-TW": []byte(`{"success":1,"data":{"movie":{"id":"anime","number":"GLOD-0436","type":4}}}`),

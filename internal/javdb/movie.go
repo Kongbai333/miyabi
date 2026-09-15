@@ -79,8 +79,8 @@ func movieReferencesFromWire(movieID, field string, source []wireMovieReference)
 	return result
 }
 
-// ResolveMovieID finds the single exact catalogue-number match returned by
-// JavDB search. Similar search hits are never accepted.
+// ResolveMovieID finds the single distinct movie ID matching the normalized
+// catalogue number. Duplicate rows are allowed; similar search hits are not.
 func (c *Client) ResolveMovieID(ctx context.Context, number string) (string, error) {
 	wanted := codeid.Normalize(number)
 	if wanted == "" {
@@ -101,7 +101,7 @@ func (c *Client) ResolveMovieID(ctx context.Context, number string) (string, err
 		if codeid.Normalize(movie.Code) != wanted {
 			continue
 		}
-		if matched != "" {
+		if matched != "" && matched != movie.ID {
 			return "", fmt.Errorf("catalogue number %s has multiple exact JavDB matches", wanted)
 		}
 		matched = movie.ID
