@@ -93,7 +93,8 @@ func (client *Client) LoginStatus(ctx context.Context, login *Login) (LoginState
 		return "", err
 	}
 	if data.Status == nil {
-		return "", fmt.Errorf("115 login response is missing status")
+		// A successful long poll can finish without a new scan event.
+		return LoginWaiting, nil
 	}
 	switch *data.Status {
 	case 0:
