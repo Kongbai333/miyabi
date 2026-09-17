@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -16,6 +17,18 @@ import (
 )
 
 const panCredentialsSetting = "pan.credentials"
+
+const (
+	// panLoginLifetime bounds a whole login. 115 does not always report a dead QR,
+	// and a poll that never carries news must not leave one on screen forever.
+	panLoginLifetime = 10 * time.Minute
+)
+
+// panLoginPollWindow bounds a single long poll. It must stay below the HTTP
+// client's own 35s timeout (pan.New) so the deadline this service owns is the one
+// that expires; that is what makes "our window elapsed" distinguishable from a
+// transport failure. Tests shorten it instead of waiting out a real window.
+var panLoginPollWindow = 30 * time.Second
 
 type panClient interface {
 	Close()
@@ -51,11 +64,12 @@ type PanLoginStatus struct {
 }
 
 type panLoginSession struct {
-	id    string
-	login *pan.Login
-	state pan.LoginState
-	err   error
-	work  singleflight.Group
+	id        string
+	login     *pan.Login
+	state     pan.LoginState
+	err       error
+	startedAt time.Time
+	work      singleflight.Group
 }
 
 type PanService struct {
@@ -160,7 +174,7 @@ func (service *PanService) BeginLogin(ctx context.Context) (PanLoginSession, err
 		service.commit.Unlock()
 		return PanLoginSession{}, context.Canceled
 	}
-	session := &panLoginSession{id: uuid.NewString(), state: pan.LoginWaiting}
+	session := &panLoginSession{id: uuid.NewString(), state: pan.LoginWaiting, startedAt: time.Now()}
 	service.session = session
 	service.mu.Unlock()
 	service.commit.Unlock()
@@ -221,13 +235,26 @@ func (service *PanService) pollLogin(ctx context.Context, session *panLoginSessi
 		service.mu.Unlock()
 		return PanLoginStatus{State: state}, err
 	}
+	if time.Since(session.startedAt) > panLoginLifetime {
+		session.state = pan.LoginExpired
+		session.login = nil
+		service.mu.Unlock()
+		return PanLoginStatus{State: pan.LoginExpired}, nil
+	}
 	login := session.login
 	service.mu.Unlock()
 
-	pollContext, stopPoll := context.WithTimeout(context.WithoutCancel(ctx), 35*time.Second)
+	pollContext, stopPoll := context.WithTimeout(context.WithoutCancel(ctx), panLoginPollWindow)
 	state, err := service.client.LoginStatus(pollContext, login)
+	// Our own window running out means the long poll came back with no event, not
+	// that the login failed. Only a genuine transport error should reach the
+	// caller, which retries on its own budget.
+	elapsed := errors.Is(pollContext.Err(), context.DeadlineExceeded)
 	stopPoll()
 	if err != nil {
+		if elapsed {
+			return PanLoginStatus{State: pan.LoginWaiting}, nil
+		}
 		return PanLoginStatus{}, fmt.Errorf("poll 115 login: %w", err)
 	}
 	if state == pan.LoginAuthorized {
@@ -241,6 +268,11 @@ func (service *PanService) pollLogin(ctx context.Context, session *panLoginSessi
 	if err != nil {
 		session.err = err
 		return PanLoginStatus{}, err
+	}
+	// Scanning is real progress. A poll that carries no news must not walk the
+	// dialog back from "confirm on your phone" to "waiting for a scan".
+	if state == pan.LoginWaiting && session.state == pan.LoginScanned {
+		state = pan.LoginScanned
 	}
 	session.state = state
 	if state != pan.LoginWaiting && state != pan.LoginScanned {

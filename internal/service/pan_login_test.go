@@ -6,9 +6,18 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ppxb/miyabi/internal/pan"
 )
+
+// panTestPollWindow shortens a long poll so a test does not wait one out.
+func panTestPollWindow(t *testing.T, window time.Duration) func() {
+	t.Helper()
+	previous := panLoginPollWindow
+	panLoginPollWindow = window
+	return func() { panLoginPollWindow = previous }
+}
 
 func TestPanLoginPollsShareExchangeAfterCallerCancellation(t *testing.T) {
 	library, client := panConcurrencyFixture(t)
@@ -122,5 +131,101 @@ func TestPanLateLoginExchangeCannotReplaceCurrentSession(t *testing.T) {
 			}
 			assertPanTokens(t, drive, want)
 		})
+	}
+}
+
+// A long poll that runs out our own window carries no news about the login, and
+// the user is usually still lining the QR code up.
+func TestPanLoginPollWindowElapsingIsNotAFailure(t *testing.T) {
+	library, client := panConcurrencyFixture(t)
+	drive := library.drive
+	t.Cleanup(panTestPollWindow(t, 20*time.Millisecond))
+	var polls atomic.Int32
+	client.loginStatus = func(ctx context.Context, _ *pan.Login) (pan.LoginState, error) {
+		if polls.Add(1) == 1 {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return pan.LoginScanned, nil
+	}
+	login, err := drive.BeginLogin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginWaiting {
+		t.Fatalf("elapsed poll window = %+v, %v", status, err)
+	}
+	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginScanned {
+		t.Fatalf("poll after the window elapsed = %+v, %v", status, err)
+	}
+}
+
+// The caller owns the retry budget, so a transport failure must leave the session
+// usable rather than writing the failure into it.
+func TestPanLoginTransportFailureKeepsTheSession(t *testing.T) {
+	library, client := panConcurrencyFixture(t)
+	drive := library.drive
+	var polls atomic.Int32
+	client.loginStatus = func(context.Context, *pan.Login) (pan.LoginState, error) {
+		if polls.Add(1) == 1 {
+			return "", errors.New("connection reset by peer")
+		}
+		return pan.LoginScanned, nil
+	}
+	login, err := drive.BeginLogin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := drive.LoginStatus(t.Context(), login.ID); err == nil {
+		t.Fatal("transport failure was reported as a login state")
+	}
+	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginScanned {
+		t.Fatalf("poll after a transport failure = %+v, %v", status, err)
+	}
+}
+
+// Scanning is progress: a poll that brings no news must not walk the dialog back
+// from "confirm on your phone" to "waiting for a scan".
+func TestPanLoginKeepsScannedWhenAPollBringsNoNews(t *testing.T) {
+	library, client := panConcurrencyFixture(t)
+	drive := library.drive
+	var polls atomic.Int32
+	client.loginStatus = func(context.Context, *pan.Login) (pan.LoginState, error) {
+		if polls.Add(1) == 1 {
+			return pan.LoginScanned, nil
+		}
+		return pan.LoginWaiting, nil
+	}
+	login, err := drive.BeginLogin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginScanned {
+		t.Fatalf("scan = %+v, %v", status, err)
+	}
+	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginScanned {
+		t.Fatalf("poll with no news = %+v, %v", status, err)
+	}
+}
+
+// 115 does not always report a dead QR, so a login has to expire on its own.
+func TestPanLoginExpiresAfterItsLifetime(t *testing.T) {
+	library, client := panConcurrencyFixture(t)
+	drive := library.drive
+	client.loginStatus = func(context.Context, *pan.Login) (pan.LoginState, error) {
+		return pan.LoginWaiting, nil
+	}
+	login, err := drive.BeginLogin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	drive.mu.Lock()
+	drive.session.startedAt = time.Now().Add(-panLoginLifetime - time.Minute)
+	drive.mu.Unlock()
+	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginExpired {
+		t.Fatalf("stale login = %+v, %v", status, err)
+	}
+	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginExpired {
+		t.Fatalf("stale login polled again = %+v, %v", status, err)
 	}
 }

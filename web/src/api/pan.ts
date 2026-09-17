@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
 import { resetMovieStates } from '@/api/movie-state-cache'
 import { taskKeys } from '@/api/tasks'
+import { panLoginPollDelay } from '@/lib/pan-login'
 
 export type PanDirectory = {
   id: string
@@ -46,8 +47,10 @@ export type PanLoginSession = {
   qr_code: string
 }
 
+export type PanLoginState = 'waiting' | 'scanned' | 'authorized' | 'expired' | 'canceled'
+
 type PanLoginStatus = {
-  state: 'waiting' | 'scanned' | 'authorized' | 'expired' | 'canceled'
+  state: PanLoginState
 }
 
 export const panKeys = {
@@ -92,11 +95,12 @@ export function usePanLoginStatus(id: string) {
     gcTime: 0,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    refetchInterval: query => {
-      if (query.state.status === 'error') return false
-      const state = query.state.data?.state
-      return !state || state === 'waiting' || state === 'scanned' ? 1500 : false
-    }
+    refetchInterval: query =>
+      panLoginPollDelay({
+        failed: query.state.status === 'error',
+        failureCount: query.state.fetchFailureCount,
+        state: query.state.data?.state
+      })
   })
 }
 

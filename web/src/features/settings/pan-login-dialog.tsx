@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2Icon, LoaderCircleIcon, QrCodeIcon, RefreshCwIcon } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
 
 import {
   invalidatePanSource,
@@ -19,6 +20,7 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog'
+import { PAN_LOGIN_MAX_FAILURES } from '@/lib/pan-login'
 
 export function PanLoginDialog({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
@@ -78,7 +80,15 @@ function LoginContent({
 }) {
   const status = usePanLoginStatus(session?.id ?? '')
   const state = status.data?.state
-  const unavailable = failed || status.isError || state === 'expired' || state === 'canceled'
+  // Polling rides out a burst of transport failures, so only a run of them — or a
+  // state 115 decided for us — is the user's problem again.
+  const exhausted = status.isError && status.failureCount >= PAN_LOGIN_MAX_FAILURES
+  const deadCode = failed || state === 'expired' || state === 'canceled'
+  // A failing poll keeps the QR code on screen: it is the one the user is aiming
+  // at, and it may still be live once the connection recovers.
+  const showQR = session !== undefined && !deadCode
+  const needsRetry = exhausted || deadCode
+  const refreshed = useRef(false)
 
   useEffect(() => {
     if (state === 'authorized') {
@@ -86,21 +96,32 @@ function LoginContent({
     }
   }, [state, onAuthorized])
 
+  // An expired code is 115 saying this QR is dead, so replacing it costs the user
+  // nothing. A cancellation is the user's own doing: leave that one to them.
+  useEffect(() => {
+    if (state !== 'expired' || refreshed.current) return
+    refreshed.current = true
+    toast.info('二维码已过期，已刷新')
+    onRetry()
+  }, [state, onRetry])
+
   let message = '等待扫码'
   if (pending) {
     message = '正在获取二维码…'
   } else if (failed) {
     message = '二维码获取失败，请检查后端服务和网络后重试。'
-  } else if (status.isError) {
+  } else if (exhausted) {
     message = '登录未完成，请重新获取二维码。'
   } else if (state === 'expired') {
-    message = '二维码已过期，请重新获取。'
+    message = '二维码已过期，正在刷新。'
   } else if (state === 'canceled') {
     message = '已取消授权，可以重新扫码。'
   } else if (state === 'scanned') {
     message = '已扫码，请在手机上确认登录'
   } else if (state === 'authorized') {
     message = '登录成功'
+  } else if (status.isError) {
+    message = '网络异常，正在重试…'
   }
 
   return (
@@ -108,7 +129,7 @@ function LoginContent({
       <div className="flex aspect-square w-full max-w-64 items-center justify-center overflow-hidden rounded-2xl border bg-muted">
         {pending ? (
           <LoaderCircleIcon className="size-8 animate-spin text-muted-foreground" />
-        ) : session && !unavailable ? (
+        ) : showQR ? (
           <img
             src={session.qr_code}
             width={256}
@@ -123,7 +144,7 @@ function LoginContent({
         {state === 'scanned' ? <CheckCircle2Icon className="size-4 shrink-0 text-success" /> : null}
         {message}
       </p>
-      {unavailable ? (
+      {needsRetry && !pending ? (
         <Button type="button" variant="outline" onClick={onRetry}>
           <RefreshCwIcon className="size-4" />
           重新获取二维码

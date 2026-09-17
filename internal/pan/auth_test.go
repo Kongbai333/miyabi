@@ -14,13 +14,14 @@ func TestLoginStatusWaitsForAnExplicitAuthorization(t *testing.T) {
 		wantErr bool
 	}{
 		{`{"state":1,"code":0,"data":{}}`, LoginWaiting, false},
+		{`{"state":1,"code":0}`, LoginWaiting, false},
 		{`{"state":1,"code":0,"data":{"status":0}}`, LoginWaiting, false},
 		{`{"state":1,"code":0,"data":{"status":1}}`, LoginScanned, false},
 		{`{"state":1,"code":0,"data":{"status":2}}`, LoginAuthorized, false},
 		{`{"state":1,"code":0,"data":{"status":-1}}`, LoginExpired, false},
 		{`{"state":1,"code":0,"data":{"status":-2}}`, LoginCanceled, false},
 		{`{"state":0,"code":99}`, "", true},
-		{`{"state":1,"code":0,"data":{"status":99}}`, "", true},
+		{`{"state":1,"code":0,"data":{"status":99}}`, LoginWaiting, false},
 	} {
 		client := New(Options{})
 		client.http.SetTransport(offlineRoundTrip(func(request *http.Request) (*http.Response, error) {

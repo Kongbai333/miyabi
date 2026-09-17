@@ -92,8 +92,11 @@ func (client *Client) LoginStatus(ctx context.Context, login *Login) (LoginState
 	if err != nil {
 		return "", err
 	}
+	// Only the statuses below say anything about the login. Everything else —
+	// an empty payload, or a value we do not recognize — is a successful answer
+	// that carries no news, so it must not abort a login the user is still
+	// completing. The caller bounds how long it keeps waiting.
 	if data.Status == nil {
-		// A successful long poll can finish without a new scan event.
 		return LoginWaiting, nil
 	}
 	switch *data.Status {
@@ -108,7 +111,7 @@ func (client *Client) LoginStatus(ctx context.Context, login *Login) (LoginState
 	case -2:
 		return LoginCanceled, nil
 	default:
-		return "", fmt.Errorf("115 returned unknown login status %d", *data.Status)
+		return LoginWaiting, nil
 	}
 }
 
