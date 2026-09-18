@@ -20,7 +20,6 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog'
-import { PAN_LOGIN_MAX_FAILURES } from '@/lib/pan-login'
 
 export function PanLoginDialog({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
@@ -80,9 +79,11 @@ function LoginContent({
 }) {
   const status = usePanLoginStatus(session?.id ?? '')
   const state = status.data?.state
-  // Polling rides out a burst of transport failures, so only a run of them — or a
-  // state 115 decided for us — is the user's problem again.
-  const exhausted = status.isError && status.failureCount >= PAN_LOGIN_MAX_FAILURES
+  // A failing poll retries on its own budget before it reports an error, so an
+  // error is a run of failures long enough to mean the backend is unreachable.
+  // Until then the last answer stays on screen and the retries only show as such.
+  const exhausted = status.isError
+  const retrying = !exhausted && status.failureCount > 0
   const deadCode = failed || state === 'expired' || state === 'canceled'
   // A failing poll keeps the QR code on screen: it is the one the user is aiming
   // at, and it may still be live once the connection recovers.
@@ -120,7 +121,7 @@ function LoginContent({
     message = '已扫码，请在手机上确认登录'
   } else if (state === 'authorized') {
     message = '登录成功'
-  } else if (status.isError) {
+  } else if (retrying) {
     message = '网络异常，正在重试…'
   }
 

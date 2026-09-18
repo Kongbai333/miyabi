@@ -184,27 +184,39 @@ func TestPanLoginTransportFailureKeepsTheSession(t *testing.T) {
 	}
 }
 
-// Scanning is progress: a poll that brings no news must not walk the dialog back
-// from "confirm on your phone" to "waiting for a scan".
+// Scanning is progress: a poll that brings no news, whether 115 answers "waiting"
+// or our own window runs out first, must not walk the dialog back from "confirm
+// on your phone" to "waiting for a scan".
 func TestPanLoginKeepsScannedWhenAPollBringsNoNews(t *testing.T) {
-	library, client := panConcurrencyFixture(t)
-	drive := library.drive
-	var polls atomic.Int32
-	client.loginStatus = func(context.Context, *pan.Login) (pan.LoginState, error) {
-		if polls.Add(1) == 1 {
-			return pan.LoginScanned, nil
-		}
-		return pan.LoginWaiting, nil
-	}
-	login, err := drive.BeginLogin(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginScanned {
-		t.Fatalf("scan = %+v, %v", status, err)
-	}
-	if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginScanned {
-		t.Fatalf("poll with no news = %+v, %v", status, err)
+	for _, test := range []struct {
+		name   string
+		noNews func(context.Context) (pan.LoginState, error)
+	}{
+		{"waiting answer", func(context.Context) (pan.LoginState, error) { return pan.LoginWaiting, nil }},
+		{"elapsed window", func(ctx context.Context) (pan.LoginState, error) { <-ctx.Done(); return "", ctx.Err() }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			library, client := panConcurrencyFixture(t)
+			drive := library.drive
+			t.Cleanup(panTestPollWindow(t, 20*time.Millisecond))
+			var polls atomic.Int32
+			client.loginStatus = func(ctx context.Context, _ *pan.Login) (pan.LoginState, error) {
+				if polls.Add(1) == 1 {
+					return pan.LoginScanned, nil
+				}
+				return test.noNews(ctx)
+			}
+			login, err := drive.BeginLogin(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginScanned {
+				t.Fatalf("scan = %+v, %v", status, err)
+			}
+			if status, err := drive.LoginStatus(t.Context(), login.ID); err != nil || status.State != pan.LoginScanned {
+				t.Fatalf("poll with no news = %+v, %v", status, err)
+			}
+		})
 	}
 }
 

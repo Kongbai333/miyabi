@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
 import { resetMovieStates } from '@/api/movie-state-cache'
 import { taskKeys } from '@/api/tasks'
-import { panLoginPollDelay } from '@/lib/pan-login'
+import { PAN_LOGIN_POLL_MS, panLoginPollDelay, panLoginShouldRetry } from '@/lib/pan-login'
 
 export type PanDirectory = {
   id: string
@@ -90,17 +90,14 @@ export function usePanLoginStatus(id: string) {
     queryFn: ({ signal }) =>
       apiGet<PanLoginStatus>(`/api/pan/login/${encodeURIComponent(id)}`, undefined, signal),
     enabled: id !== '',
-    retry: false,
+    retry: panLoginShouldRetry,
+    retryDelay: PAN_LOGIN_POLL_MS,
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: query =>
-      panLoginPollDelay({
-        failed: query.state.status === 'error',
-        failureCount: query.state.fetchFailureCount,
-        state: query.state.data?.state
-      })
+      panLoginPollDelay({ failed: query.state.status === 'error', state: query.state.data?.state })
   })
 }
 

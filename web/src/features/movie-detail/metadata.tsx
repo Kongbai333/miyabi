@@ -55,7 +55,7 @@ export function MovieMetadata({ movie }: { movie: MovieMetadataValues }) {
                 <Badge
                   key={tag.id || `${tag.name}:${index}`}
                   variant="outline"
-                  className="h-auto max-w-full whitespace-normal break-words"
+                  className="h-auto max-w-full break-words whitespace-normal"
                 >
                   {tag.name}
                 </Badge>

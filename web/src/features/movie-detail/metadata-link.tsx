@@ -30,7 +30,7 @@ export function MetadataLink({
   return badge ? (
     <Badge
       variant="outline"
-      className="h-auto max-w-full min-w-0 whitespace-normal break-words"
+      className="h-auto max-w-full min-w-0 break-words whitespace-normal"
       asChild
     >
       {link}
