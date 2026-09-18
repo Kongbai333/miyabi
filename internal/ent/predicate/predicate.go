@@ -12,6 +12,9 @@ type Actor func(*sql.Selector)
 // File is the predicate function for file builders.
 type File func(*sql.Selector)
 
+// Monitor is the predicate function for monitor builders.
+type Monitor func(*sql.Selector)
+
 // Movie is the predicate function for movie builders.
 type Movie func(*sql.Selector)
 

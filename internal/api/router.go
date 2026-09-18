@@ -22,6 +22,7 @@ type Dependencies struct {
 	Discover Discoverer
 	Pan      PanManager
 	Offline  OfflineManager
+	Monitor  MonitorManager
 	Library  LibraryManager
 	Play     PlayManager
 	Tasks    TaskManager
@@ -73,6 +74,14 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	api.GET("/tasks", tasksHandler(deps.Tasks))
 	api.GET("/tasks/events", taskEventsHandler(deps.Tasks))
 	api.GET("/offline/tasks", offlineActivityHandler(deps.Offline))
+	monitorAPI := api.Group("/monitors", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.Next()
+	})
+	monitorAPI.GET("", monitorListHandler(deps.Monitor))
+	monitorAPI.POST("", monitorAddHandler(deps.Monitor))
+	monitorAPI.DELETE("/:id", monitorRemoveHandler(deps.Monitor))
+	monitorAPI.POST("/:id/retry", monitorRetryHandler(deps.Monitor))
 	api.GET("/discover/movies", discoverBrowseHandler(deps.Discover))
 	api.POST("/discover/movie-states", discoverMovieStatesHandler(deps.Discover))
 	api.GET("/discover/search", discoverSearchHandler(deps.Discover))

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/file"
+	"github.com/ppxb/miyabi/internal/ent/monitor"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/schema"
 	"github.com/ppxb/miyabi/internal/ent/setting"
@@ -98,6 +99,51 @@ func init() {
 	fileDescScanID := fileFields[9].Descriptor()
 	// file.DefaultScanID holds the default value on creation for the scan_id field.
 	file.DefaultScanID = fileDescScanID.Default.(string)
+	monitorMixin := schema.Monitor{}.Mixin()
+	monitorMixinFields0 := monitorMixin[0].Fields()
+	_ = monitorMixinFields0
+	monitorFields := schema.Monitor{}.Fields()
+	_ = monitorFields
+	// monitorDescCreatedAt is the schema descriptor for created_at field.
+	monitorDescCreatedAt := monitorMixinFields0[0].Descriptor()
+	// monitor.DefaultCreatedAt holds the default value on creation for the created_at field.
+	monitor.DefaultCreatedAt = monitorDescCreatedAt.Default.(func() time.Time)
+	// monitorDescUpdatedAt is the schema descriptor for updated_at field.
+	monitorDescUpdatedAt := monitorMixinFields0[1].Descriptor()
+	// monitor.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	monitor.DefaultUpdatedAt = monitorDescUpdatedAt.Default.(func() time.Time)
+	// monitor.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	monitor.UpdateDefaultUpdatedAt = monitorDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// monitorDescMovieID is the schema descriptor for movie_id field.
+	monitorDescMovieID := monitorFields[0].Descriptor()
+	// monitor.MovieIDValidator is a validator for the "movie_id" field. It is called by the builders before save.
+	monitor.MovieIDValidator = monitorDescMovieID.Validators[0].(func(string) error)
+	// monitorDescCode is the schema descriptor for code field.
+	monitorDescCode := monitorFields[1].Descriptor()
+	// monitor.CodeValidator is a validator for the "code" field. It is called by the builders before save.
+	monitor.CodeValidator = monitorDescCode.Validators[0].(func(string) error)
+	// monitorDescTitle is the schema descriptor for title field.
+	monitorDescTitle := monitorFields[2].Descriptor()
+	// monitor.DefaultTitle holds the default value on creation for the title field.
+	monitor.DefaultTitle = monitorDescTitle.Default.(string)
+	// monitorDescCover is the schema descriptor for cover field.
+	monitorDescCover := monitorFields[3].Descriptor()
+	// monitor.DefaultCover holds the default value on creation for the cover field.
+	monitor.DefaultCover = monitorDescCover.Default.(string)
+	// monitorDescReleaseDate is the schema descriptor for release_date field.
+	monitorDescReleaseDate := monitorFields[4].Descriptor()
+	// monitor.DefaultReleaseDate holds the default value on creation for the release_date field.
+	monitor.DefaultReleaseDate = monitorDescReleaseDate.Default.(string)
+	// monitorDescHash is the schema descriptor for hash field.
+	monitorDescHash := monitorFields[6].Descriptor()
+	// monitor.DefaultHash holds the default value on creation for the hash field.
+	monitor.DefaultHash = monitorDescHash.Default.(string)
+	// monitorDescChecks is the schema descriptor for checks field.
+	monitorDescChecks := monitorFields[10].Descriptor()
+	// monitor.DefaultChecks holds the default value on creation for the checks field.
+	monitor.DefaultChecks = monitorDescChecks.Default.(int)
+	// monitor.ChecksValidator is a validator for the "checks" field. It is called by the builders before save.
+	monitor.ChecksValidator = monitorDescChecks.Validators[0].(func(int) error)
 	movieMixin := schema.Movie{}.Mixin()
 	movieMixinFields0 := movieMixin[0].Fields()
 	_ = movieMixinFields0

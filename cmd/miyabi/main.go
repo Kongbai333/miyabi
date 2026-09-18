@@ -71,6 +71,7 @@ func run(args []string) error {
 	}
 	defer drive.Close()
 	offline := service.NewOfflineService(store.Client, discover, drive, tasks)
+	monitors := service.NewMonitorService(store.Client, discover, offline, tasks)
 	images, err := mediaimage.NewCache(cfg.DataDir)
 	if err != nil {
 		return err
@@ -97,6 +98,7 @@ func run(args []string) error {
 		Discover: discover,
 		Pan:      drive,
 		Offline:  offline,
+		Monitor:  monitors,
 		Library:  library,
 		Play:     play,
 		Tasks:    tasks,
@@ -112,6 +114,7 @@ func run(args []string) error {
 	}
 
 	workerDone := make(chan struct{})
+	monitorDone := make(chan struct{})
 	poolDone := make(chan struct{})
 	poolError := make(chan error, 1)
 	go func() {
@@ -122,9 +125,14 @@ func run(args []string) error {
 		defer close(workerDone)
 		worker.RunOffline(ctx, offline, logger)
 	}()
+	go func() {
+		defer close(monitorDone)
+		worker.RunMonitor(ctx, monitors, logger)
+	}()
 	defer func() {
 		stop()
 		<-workerDone
+		<-monitorDone
 		<-poolDone
 	}()
 

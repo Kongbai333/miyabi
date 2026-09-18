@@ -16,6 +16,8 @@ type Tx struct {
 	Actor *ActorClient
 	// File is the client for interacting with the File builders.
 	File *FileClient
+	// Monitor is the client for interacting with the Monitor builders.
+	Monitor *MonitorClient
 	// Movie is the client for interacting with the Movie builders.
 	Movie *MovieClient
 	// Setting is the client for interacting with the Setting builders.
@@ -159,6 +161,7 @@ func (tx *Tx) Client() *Client {
 func (tx *Tx) init() {
 	tx.Actor = NewActorClient(tx.config)
 	tx.File = NewFileClient(tx.config)
+	tx.Monitor = NewMonitorClient(tx.config)
 	tx.Movie = NewMovieClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
 	tx.Tag = NewTagClient(tx.config)

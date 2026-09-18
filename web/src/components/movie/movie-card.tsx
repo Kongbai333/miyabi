@@ -4,11 +4,13 @@ import type { ReactNode } from 'react'
 import type { DiscoverMovie } from '@/api/discover'
 import { MovieResourceBadges, MovieStateBadge } from '@/components/movie/movie-badges'
 import { MovieCover } from '@/components/movie/movie-cover'
+import { MovieMonitorButton } from '@/components/movie/movie-monitor-button'
 import { OverflowTooltip } from '@/components/overflow-tooltip'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 
 export function DiscoverMovieCard({ movie }: { movie: DiscoverMovie }) {
+  const monitorable = movie.release_status === 'upcoming' && movie.magnets_count === 0
   return (
     <Link
       to="/discover/$movieId"
@@ -19,6 +21,13 @@ export function DiscoverMovieCard({ movie }: { movie: DiscoverMovie }) {
         movie={movie}
         description={movie.release_date}
         state={<MovieStateBadge movie={movie} />}
+        coverOverlay={
+          monitorable ? (
+            <div className="absolute top-2 right-2">
+              <MovieMonitorButton movie={movie} />
+            </div>
+          ) : undefined
+        }
       >
         <MovieResourceBadges movie={movie} />
       </MovieCard>
@@ -53,7 +62,7 @@ export function MovieCard({
         <div className="absolute inset-0">
           <MovieCover source={movie.cover ?? ''} loading={coverLoading} onReady={onCoverReady} />
         </div>
-        <div className="absolute top-2 left-2 flex max-w-[calc(100%-1rem)] flex-wrap gap-1.5">
+        <div className="absolute top-2 left-2 flex max-w-[calc(100%-3.5rem)] flex-wrap gap-1.5">
           <Badge variant="outline" className="max-w-full truncate bg-background/85 backdrop-blur">
             {movie.code}
           </Badge>

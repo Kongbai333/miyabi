@@ -17,6 +17,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/file"
+	"github.com/ppxb/miyabi/internal/ent/monitor"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/ent/tag"
@@ -33,6 +34,8 @@ type Client struct {
 	Actor *ActorClient
 	// File is the client for interacting with the File builders.
 	File *FileClient
+	// Monitor is the client for interacting with the Monitor builders.
+	Monitor *MonitorClient
 	// Movie is the client for interacting with the Movie builders.
 	Movie *MovieClient
 	// Setting is the client for interacting with the Setting builders.
@@ -56,6 +59,7 @@ func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.Actor = NewActorClient(c.config)
 	c.File = NewFileClient(c.config)
+	c.Monitor = NewMonitorClient(c.config)
 	c.Movie = NewMovieClient(c.config)
 	c.Setting = NewSettingClient(c.config)
 	c.Tag = NewTagClient(c.config)
@@ -155,6 +159,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		config:       cfg,
 		Actor:        NewActorClient(cfg),
 		File:         NewFileClient(cfg),
+		Monitor:      NewMonitorClient(cfg),
 		Movie:        NewMovieClient(cfg),
 		Setting:      NewSettingClient(cfg),
 		Tag:          NewTagClient(cfg),
@@ -181,6 +186,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		config:       cfg,
 		Actor:        NewActorClient(cfg),
 		File:         NewFileClient(cfg),
+		Monitor:      NewMonitorClient(cfg),
 		Movie:        NewMovieClient(cfg),
 		Setting:      NewSettingClient(cfg),
 		Tag:          NewTagClient(cfg),
@@ -215,7 +221,7 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.Actor, c.File, c.Movie, c.Setting, c.Tag, c.Task, c.WatchHistory,
+		c.Actor, c.File, c.Monitor, c.Movie, c.Setting, c.Tag, c.Task, c.WatchHistory,
 	} {
 		n.Use(hooks...)
 	}
@@ -225,7 +231,7 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.Actor, c.File, c.Movie, c.Setting, c.Tag, c.Task, c.WatchHistory,
+		c.Actor, c.File, c.Monitor, c.Movie, c.Setting, c.Tag, c.Task, c.WatchHistory,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -238,6 +244,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Actor.mutate(ctx, m)
 	case *FileMutation:
 		return c.File.mutate(ctx, m)
+	case *MonitorMutation:
+		return c.Monitor.mutate(ctx, m)
 	case *MovieMutation:
 		return c.Movie.mutate(ctx, m)
 	case *SettingMutation:
@@ -548,6 +556,139 @@ func (c *FileClient) mutate(ctx context.Context, m *FileMutation) (Value, error)
 		return (&FileDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown File mutation op: %q", m.Op())
+	}
+}
+
+// MonitorClient is a client for the Monitor schema.
+type MonitorClient struct {
+	config
+}
+
+// NewMonitorClient returns a client for the Monitor from the given config.
+func NewMonitorClient(c config) *MonitorClient {
+	return &MonitorClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `monitor.Hooks(f(g(h())))`.
+func (c *MonitorClient) Use(hooks ...Hook) {
+	c.hooks.Monitor = append(c.hooks.Monitor, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `monitor.Intercept(f(g(h())))`.
+func (c *MonitorClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Monitor = append(c.inters.Monitor, interceptors...)
+}
+
+// Create returns a builder for creating a Monitor entity.
+func (c *MonitorClient) Create() *MonitorCreate {
+	mutation := newMonitorMutation(c.config, OpCreate)
+	return &MonitorCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Monitor entities.
+func (c *MonitorClient) CreateBulk(builders ...*MonitorCreate) *MonitorCreateBulk {
+	return &MonitorCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MonitorClient) MapCreateBulk(slice any, setFunc func(*MonitorCreate, int)) *MonitorCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MonitorCreateBulk{err: fmt.Errorf("calling to MonitorClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MonitorCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MonitorCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Monitor.
+func (c *MonitorClient) Update() *MonitorUpdate {
+	mutation := newMonitorMutation(c.config, OpUpdate)
+	return &MonitorUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MonitorClient) UpdateOne(_m *Monitor) *MonitorUpdateOne {
+	mutation := newMonitorMutation(c.config, OpUpdateOne, withMonitor(_m))
+	return &MonitorUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MonitorClient) UpdateOneID(id int) *MonitorUpdateOne {
+	mutation := newMonitorMutation(c.config, OpUpdateOne, withMonitorID(id))
+	return &MonitorUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Monitor.
+func (c *MonitorClient) Delete() *MonitorDelete {
+	mutation := newMonitorMutation(c.config, OpDelete)
+	return &MonitorDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MonitorClient) DeleteOne(_m *Monitor) *MonitorDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MonitorClient) DeleteOneID(id int) *MonitorDeleteOne {
+	builder := c.Delete().Where(monitor.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MonitorDeleteOne{builder}
+}
+
+// Query returns a query builder for Monitor.
+func (c *MonitorClient) Query() *MonitorQuery {
+	return &MonitorQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMonitor},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Monitor entity by its id.
+func (c *MonitorClient) Get(ctx context.Context, id int) (*Monitor, error) {
+	return c.Query().Where(monitor.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MonitorClient) GetX(ctx context.Context, id int) *Monitor {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *MonitorClient) Hooks() []Hook {
+	return c.hooks.Monitor
+}
+
+// Interceptors returns the client interceptors.
+func (c *MonitorClient) Interceptors() []Interceptor {
+	return c.inters.Monitor
+}
+
+func (c *MonitorClient) mutate(ctx context.Context, m *MonitorMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MonitorCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MonitorUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MonitorUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MonitorDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Monitor mutation op: %q", m.Op())
 	}
 }
 
@@ -1315,9 +1456,9 @@ func (c *WatchHistoryClient) mutate(ctx context.Context, m *WatchHistoryMutation
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		Actor, File, Movie, Setting, Tag, Task, WatchHistory []ent.Hook
+		Actor, File, Monitor, Movie, Setting, Tag, Task, WatchHistory []ent.Hook
 	}
 	inters struct {
-		Actor, File, Movie, Setting, Tag, Task, WatchHistory []ent.Interceptor
+		Actor, File, Monitor, Movie, Setting, Tag, Task, WatchHistory []ent.Interceptor
 	}
 )

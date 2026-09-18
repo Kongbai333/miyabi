@@ -39,6 +39,7 @@ type TaskRevisions struct {
 	Library uint64 `json:"library"`
 	Offline uint64 `json:"offline"`
 	History uint64 `json:"history"`
+	Monitor uint64 `json:"monitor"`
 }
 
 type TaskService struct {
@@ -382,6 +383,23 @@ func (service *TaskService) NotifyOfflineChanged() {
 
 func (service *TaskService) NotifyWatchHistoryChanged() {
 	service.notify(false, false, true)
+}
+
+// Monitor changes only refresh the watch list; they never wake the task pool.
+func (service *TaskService) NotifyMonitorChanged() {
+	service.mu.Lock()
+	service.revisions.Monitor++
+	subscribers := make([]chan struct{}, 0, len(service.subscribers))
+	for subscriber := range service.subscribers {
+		subscribers = append(subscribers, subscriber)
+	}
+	service.mu.Unlock()
+	for _, subscriber := range subscribers {
+		select {
+		case subscriber <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (service *TaskService) Revisions() TaskRevisions {
