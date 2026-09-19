@@ -90,4 +90,4 @@ docker rm miyabi
 
 ## License
 
-遵循 [MIT](./LICENSE) 协议。
+遵循 [GNU GPL v3](./LICENSE) 协议。
