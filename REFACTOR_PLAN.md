@@ -100,43 +100,40 @@ type Source interface {
 **配置模型**（settings 表，key `network.proxy`）
 
 ```json
-{
-  "url": "http://127.0.0.1:7890",
-  "targets": { "javdb": true, "javbus": true, "pan": false }
-}
+{ "enabled": true, "url": "http://127.0.0.1:10777" }
 ```
 
-- `MIYABI_PROXY` 保留：首次启动且 settings 无记录时作为初始值写入；之后以 settings 为准。
-- 空 `url` 表示关闭。目标缺省值：javdb 开、javbus 开、pan 关。
+- 一个开关加一个地址，没有按目标的细分。开启时 JavDB 与 JavBus 全部走代理，115 永远直连（115 走代理更慢且容易触发风控，这是固定规则不是选项）。
+- `MIYABI_PROXY` 保留：首次启动且 settings 无记录时作为初始值写入并置 `enabled=true`；之后以 settings 为准。
+- 支持 `http://`、`https://`、`socks5://`，可带用户名密码。
 
 **`internal/netx`**
 
 ```go
-type Target string // TargetJavDB / TargetJavBus / TargetPan
-
 type ProxyManager struct { current atomic.Pointer[ProxyConfig]; subs []chan struct{} }
-func (m *ProxyManager) Resolve(t Target) *url.URL     // 每个请求调用
-func (m *ProxyManager) Update(ctx, ProxyConfig) error  // 持久化 + 通知
+func (m *ProxyManager) Resolve() *url.URL                // 未开启返回 nil，每个请求调用
+func (m *ProxyManager) Update(ctx, ProxyConfig) error     // 校验、持久化、通知
 func (m *ProxyManager) Subscribe() <-chan struct{}
 
-// 客户端工厂：所有 HTTP 客户端只能从这里创建
-func NewRestyClient(m *ProxyManager, t Target, opts RestyOptions) *resty.Client
-func NewFingerprintClient(m *ProxyManager, t Target, opts FingerprintOptions) (tlsclient.HttpClient, error)
+// 客户端工厂：所有上游 HTTP 客户端只能从这里创建
+func NewRestyClient(m *ProxyManager, opts RestyOptions) *resty.Client          // JavDB 媒体、JavBus 详情
+func NewDirectRestyClient(opts RestyOptions) *resty.Client                      // 115，永不读代理
+func NewFingerprintClient(m *ProxyManager, opts FingerprintOptions) (tlsclient.HttpClient, error)
 ```
 
-- resty：不用 `SetProxy`，而是注入自定义 `http.Transport{Proxy: func(*http.Request) (*url.URL, error) { return m.Resolve(t), nil }}`，每个请求实时取值，改代理无需重建客户端、无并发竞态。
-- tls-client：代理只能在构造时指定。JavDB 的 transport 本来就在每次路由安装时重建（`javdb/client.go:installRoute`），因此 `javdb.Client` 订阅代理变更后调用 `Reinstall()` 重建当前路由的 transport 即可；JavBus 客户端同理。
+- resty：注入自定义 `http.Transport{Proxy: func(*http.Request) (*url.URL, error) { return m.Resolve(), nil }}`，每个请求实时取值，改代理无需重建客户端、无并发竞态。
+- tls-client：代理只能在构造时指定。JavDB 的 transport 本来就在每次路由安装时重建（`javdb/client.go:installRoute`），`javdb.Client` 订阅代理变更后调用 `Reinstall()` 重建当前路由的 transport；JavBus 客户端同理。
 - `cmd/miyabi/healthcheck.go` 保持不用代理。
 
 **API**
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/settings/network` | 返回当前配置（url 脱敏保留主机端口） |
-| PUT | `/api/settings/network` | 校验 URL（http/https/socks5），保存并广播 |
-| POST | `/api/settings/network/test` | 并发探测：JavDB `/api/v1/startup`、JavBus 首页、115 `/open/user/info`（已登录时），按当前 targets 配置分别走或不走代理，返回每项耗时与错误 |
+| GET | `/api/settings/network` | 返回 `enabled` 与 `url`（密码脱敏） |
+| PUT | `/api/settings/network` | 校验 URL，保存并广播；开启时立即触发一次 JavDB 路由探测 |
+| POST | `/api/settings/network/test` | 并发探测 JavDB `/api/v1/startup` 与 JavBus 首页（按当前开关走或不走代理），返回各自耗时与错误 |
 
-**前端**：设置页新增"网络"分区，复用 `features/settings/shared.tsx` 现有布局原语与表单组件，一个地址输入框、三个开关、一个测试按钮和结果列表。不新增样式。
+**前端**：设置页新增"网络"分区，复用 `features/settings/shared.tsx` 现有布局原语：一个开关、一个地址输入框、一个测试按钮和两行结果。JavBus 数据开关放在同一分区下方，未开启代理时开启 JavBus 给出提示但不阻止。不新增样式。
 
 ### 2.3 步骤
 
@@ -279,9 +276,38 @@ func (e *Error) Error() string; Unwrap() error; PublicMessage() string
 | 前端 `lib/watch-progress.ts` 与 `features/player/watch-progress.ts` 撞名 | 后者更名 `watch-progress-writer.ts` |
 | 前端 `shadcn` 在 `dependencies` | 移到 `devDependencies` |
 
-### 3.9 前端边界
+### 3.9 前端优化与拆分清单
 
-本轮前端只做：反向依赖清理、上表列出的去重、磁力卡片数据驱动（见工作线 C）、网络设置分区（见工作线 A）。不改路由结构、不改 zustand 与 URL 状态分工、不改任何 className、动效、骨架屏数量。每项去重都以"渲染结果 DOM 一致"为验收，用现有 `node --test` 补快照即可。
+原则：不改任何 className、动效、骨架屏数量与路由结构；每项以"渲染 DOM 一致"为验收。按优先级：
+
+**结构**
+
+1. `src/api` 变叶子层：`api/library.ts:8`、`api/offline.ts:7` 的 toast 移到调用组件的 `onSuccess/onError`；`api/watch-history.ts:5` 依赖的 `watchSessions` 移入 `features/player`。
+2. `features/player/movie-player.tsx`（319 行）拆为 `movie-player.tsx`（数据加载与文件选择）、`playback-player.tsx`（Vidstack 装配）、`use-playback-source.ts`（画质切换、重试、续播 seek 三组 ref 与 state）。`PlaybackPlayer` 现在同时管 5 个 ref、5 个 state、8 个事件。
+3. `features/discover/page.tsx`（246 行）把 `CategoryContent / BrowseResults / CategoryFilters` 拆成独立文件；`CategoryFilters` 的 13 个 props 全部来自 store，改为组件内直接读 store。
+4. `features/history/page.tsx`（247 行）把多选状态机与确认对话框拆为 `use-history-selection.ts` 与 `history-clear-dialog.tsx`。
+5. `features/tasks/task-notifications.tsx` 的 97 行 `useEffect` 抽成纯函数 `diffTaskNotifications(prev, next)` 并补单测；`version: JSON.stringify([...9 字段])` 改为显式比较。
+6. `features/settings/pan-directory-dialog.tsx`（215 行）拆 `directory-breadcrumbs.tsx` 与 `directory-list.tsx`。
+7. `api/movie-detail-cache.ts` 的 `findCachedMovieCard` 每次快照全量扫描所有 discover 查询，改为维护 `id → 最新卡片` 索引，随 query cache 事件更新。
+
+**去重**
+
+8. 三份 `page` 校验器 → `lib/search-schema.ts`。
+9. 三处 `DiscoverResults` 参数展开 → 组件直接接收 `UseQueryResult`。
+10. 两处 zone Select、两处确认对话框、两处卡片包装、四处 `sameSource` 判断、五处 `clamp` 各收敛为一份。
+11. 三种 entity 形状（`NamedEntity / LibraryEntity / MetadataEntity`）与两种 source scope（`LibrarySource / WatchHistoryScope`）统一为一份类型与转换函数。
+12. `MagnetCard` 9 个 props 中 5 个派生自两个查询，卡片自己订阅；配合工作线 C 改为标签驱动。
+13. 查询默认项（`retry:false, refetchOnWindowFocus:false`）在各文件手抄，收敛到 `QueryClient` 默认或一个共享工厂。
+14. `discoverKeys` 从 `movie-detail-cache.ts` 移回 `discover.ts`；`watchHistoryKeys` 嵌套在 `libraryKeys` 之下的隐式耦合加注释或拆开。
+
+**卫生**
+
+15. `lib/watch-progress.ts` 与 `features/player/watch-progress.ts` 撞名，后者改 `watch-progress-writer.ts`。
+16. `task-progress-state.ts` 与 `scan-status.ts` 两套阶段映射共享阶段定义。
+17. `shadcn` 移到 `devDependencies`；`ui/card.tsx`、`ui/pagination.tsx`、`ui/tabs.tsx` 零引用导出按需清理（`GoogleCastButton` 是 Vidstack 类型必填项，不能删）。
+18. `client.ts` 的 `imageURL` 特判 `/api/library/artwork/` 前缀，改为后端统一返回可直接使用的 URL 后删除。
+
+不在本轮：发现页状态迁 URL、facets 数据驱动、类型生成。这些会改交互或需要装工具，等结构稳定后再议。
 
 ---
 
@@ -295,20 +321,25 @@ func (e *Error) Error() string; Unwrap() error; PublicMessage() string
 
 **传输**：`netx.NewFingerprintClient(TargetJavBus)`（Chrome 指纹，JavBus 前面有 Cloudflare，普通 Go client 容易被拦），cookie jar，限速 1 req/s，超时 15s。基础域名可配置，默认 `https://www.javbus.com`，备选镜像列表由用户填写。
 
-**协议**（来自 JHS-enhance 与公开实现，需要用真实响应固件确认）：
+**协议**（2026-09-19 已通过本机代理 `127.0.0.1:10777` 实测，固件已存入 `internal/javbus/testdata/`）：
 
-1. 详情页 `GET {base}/{CODE}`，请求头带 `Cookie: existmag=all`（否则只显示有磁力的条目）。
-2. 从页内脚本提取三个变量：`var gid = <数字>; var uc = <数字>; var img = '<封面URL>';`。
-3. 磁力片段 `GET {base}/ajax/uncledatoolsbyajax.php?gid={gid}&lang=zh&img={img}&uc={uc}&floor={1..1000 随机}`，请求头必须带 `Referer: {base}/{CODE}` 与同一 cookie。
-4. 响应是 HTML 片段，若干 `<tr>`：第 1 列 `a[href^=magnet:]` 名称与磁力链，同列内 `a.btn-primary` 文本"高清"、`a.btn-warning` 文本"字幕"；第 2 列体积（`1.23GB`，1024 进制）；第 3 列日期 `YYYY-MM-DD`。
-5. 番号不存在时详情页返回 404，视为"无结果"而非错误。
-6. 覆盖范围：censored、uncensored；FC2、western、anime 直接跳过不请求。
+1. 详情页 `GET {base}/{CODE}`。**必须带 `Cookie: dv=1`**，否则无论番号是否存在都 302 到 `/doc/driver-verify` 的问卷页；`existmag=all` 另外附上以显示全部条目。`age=verified` 无效。
+2. 从页内脚本提取三个变量：`var gid = 45622804531; var uc = 0; var img = '/pics/cover/83ie_b.jpg';`。
+3. 磁力片段 `GET {base}/ajax/uncledatoolsbyajax.php?gid={gid}&lang=zh&img={img}&uc={uc}&floor={1..1000 随机}`，请求头带 `Referer: {base}/{CODE}` 与同一 cookie。实测返回 200，SSIS-001 得到 86 条。
+4. 响应是 HTML 片段，若干 `<tr>`：第 1 列 `a[href^=magnet:]` 的 href 含 `xt=urn:btih:<hash>&dn=<名称>`（hash 大小写混杂，需小写归一），同列内 `a.btn-primary` 文本"高清"、`a.btn-warning` 文本"字幕"；第 2 列体积 `2.02GB`（1024 进制）；第 3 列日期 `2025-10-28`。
+5. 番号不存在时（带 `dv=1`）返回真实 404，页面标题 `404 Page Not Found! - JavBus`，视为"无结果"而非错误。
+6. 无码番号（如 `070125_001`）同一路径可用；FC2、western、anime 直接跳过不请求。
+7. 详情页还含 `識別碼 / 發行日期 / 長度 / 導演 / 製作商 / 發行商`、演员 `a.avatar-box[href*=/star/]`、样品图 `.sample-box`，后续做详情补缺时可复用同一份 HTML。
+
+**镜像管理**：JavBus 没有可选镜像，只有 `www.javbus.com` 一个域名，不做端点管理。域名放在 `config.Runtime` 里可被环境变量覆盖即可。
 
 **解析**：用 `golang.org/x/net/html`（已在 go.sum，是间接依赖，需要提升为直接依赖，属于既有模块不算新装；若你希望用 goquery 需要你来安装）。
 
 **缓存**：详情页 HTML 按番号缓存 5 分钟，为后续详情补缺复用。
 
-**测试**：`internal/javbus/testdata/` 放详情页与 ajax 片段固件，覆盖：有磁力、无磁力、404、Cloudflare 挑战页（识别 `Just a moment` 返回 `Kind=Upstream`）。
+**开关**：`magnet.javbus.enabled` 默认关闭；没有代理条件的用户保持关闭，聚合器只跑 JavDB，行为与现在完全一致。开关放在设置页"网络"分区，开启时触发一次探测并显示结果。
+
+**测试**：固件三份：`detail_ssis-001.html`（41 KB）、`magnets_ssis-001.html`（79 KB，含高清 26 条、字幕 8 条）、`notfound_zzzz-99999.html`。另需构造 driver-verify 302 与 Cloudflare 挑战页（识别 `Just a moment` 返回 `Kind=Upstream`）两个用例。
 
 ### 4.3 `internal/magnet`
 
@@ -334,9 +365,59 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 - `POST /api/discover/movies/:id/offline {hash}`：`OfflineService.Add` 校验 hash 时对聚合结果校验，JavBus 独有磁力也能推送。
 - `monitor.checkOne`：使用聚合结果；首选含 javdb 的条目，其次含 javbus 的；策略在设置中可调（仅 JavDB / 两者）。
 - 设置：`magnet.javbus.enabled`、`magnet.javbus.base_url`、`magnet.javbus.mirrors[]`、`monitor.sources`。
-- 前端 `MagnetCard`：现有两个布尔徽章改为遍历 `tags` 渲染，同样式的 `Badge` 组件；新增来源小徽章沿用 `variant="outline"`。卡片布局、间距、动效不变。
+- 前端 `MagnetCard`：现有两个布尔徽章改为遍历 `tags` 渲染，同样式的 `Badge` 组件；每条磁力显示来源徽章（`JavDB`、`JavBus`，两者都有时并列），沿用 `variant="outline"`。卡片布局、间距、动效不变。
 
 工作量约 1 到 1.5 周，依赖工作线 A 与 B1 的 `domain`。
+
+### 4.5 追踪改为订阅（影片 + 演员）
+
+现有 `monitor` 只针对单部未发售影片，状态机 `waiting → added | stale`，入口藏在发现页的一个标签里。改为一等功能：独立路由、两类订阅、批量入库。
+
+**数据模型**（`monitor` 表在 M4 迁移时更名为 `subscription`，字段兼容迁移）
+
+| 字段 | 说明 |
+| --- | --- |
+| `kind` | `movie` / `actor` |
+| `target_id` | JavDB 影片 id 或演员 id，`(kind, target_id)` 唯一 |
+| `code / title / cover / release_date` | 影片订阅沿用；演员订阅存 `name / avatar` 复用 `title / cover` |
+| `origin_id` | 影片订阅若由演员订阅自动生成，记录来源演员订阅 id |
+| `auto_download` | 是否出磁力即推 115；创建时取自设置页默认值，可单条覆盖 |
+| `zone` | 演员订阅可限定 censored / uncensored / 不限 |
+| `status` | 影片：`waiting / added / stale`；演员：`active / paused / error` |
+| `cursor` | 演员订阅游标：上次见到的最新发行日期与影片 id 集合（JSON） |
+| `hash / task_id / next_check_at / last_checked_at / checks / error` | 沿用 |
+
+**演员检查**：每天一次，调用现有 `Browse`：`EntityType=actor, EntityID=<id>, Sort=release, Order=desc, Page=1, Limit=40`，与 `cursor` 比对得到新作；每部新作创建一条影片订阅，`origin_id` 指向演员订阅，`auto_download` 继承演员订阅的设置。JavDB 限速 2 req/s，200 位演员每天只有几分钟请求量。
+
+**"入库"的语义**：对一条影片订阅执行入库 = 取聚合磁力，按现有排序选最佳一条（字幕 > 高清 > 体积，JavDB 来源优先），调用 `offline.Add`，状态转 `added`。没有磁力则保持 `waiting` 并置 `auto_download=true`，出磁力时自动推送。已在库中的影片（`movie-states` 为 `in_library`）不显示入库按钮。
+
+**批量入库必须走任务队列**：一次勾选几十部影片如果并发打 115 离线接口会触发风控。`POST /api/subscriptions/enqueue {ids | all: true}` 创建一个 `subscription_batch` 任务，由现有 pool（单 worker）顺序处理，每部之间间隔 1.5 到 3 秒随机，进度与失败明细通过现有 SSE `tasks` 事件推送，前端沿用 `TaskProgress` 与 toast。
+
+**设置页**新增"订阅"分区：影片订阅默认自动推送（默认开）、演员新作默认自动推送（默认关）、演员检查时间（默认每天 04:00）。
+
+**API**
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/subscriptions?kind=movie\|actor&page=` | 列表，影片项附带 `movie-states` 所需字段 |
+| POST | `/api/subscriptions` | `{kind, target_id, auto_download?, zone?}` |
+| PATCH | `/api/subscriptions/:id` | 改 `auto_download / zone / status(paused)` |
+| DELETE | `/api/subscriptions/:id` | |
+| POST | `/api/subscriptions/:id/enqueue` | 单部入库 |
+| POST | `/api/subscriptions/enqueue` | `{ids}` 或 `{all: true, kind: movie}` 批量入库，返回 202 与任务 id |
+| GET | `/api/subscriptions/actors/:id/feed?page=` | 某位演员的新作动态 |
+
+原 `/api/monitors*` 全部删除，前端一并替换。
+
+**前端**
+
+- `FloatingNav` 新增"订阅"项（`Bell` 图标），路由 `/subscriptions`，`Tabs` 两页：影片订阅、演员订阅。发现页的"监控列表"标签删除。
+- 影片订阅页：复用 `MovieGridLayout` 与 `MovieCard`，卡片右上角状态徽章（等待磁力 / 入库中 / 已入库 / 已过期）沿用 `Badge` 变体；头部工具栏复用历史页的选择模式（`selecting / selected Set`、"全选"、"入库选中 (N)"、"一键入库"），一键入库前用现有确认对话框展示将入库数量。单部入库放在卡片 hover 操作区（桌面）与详情页（移动端）。
+- 演员订阅页：上方演员横向列表（头像 + 名称 + 新作数 + 自动推送开关 + 暂停/移除），点选某位演员时下方网格只显示其新作，未选中显示全部新作；网格与批量操作和影片订阅页共用同一组件。
+- 演员实体页（`/discover/search?kind=actor`）头部加"订阅"按钮；影片详情页现有的追踪按钮改为"订阅"，文案与图标更新，样式不变。
+- 所有新组件只组合现有 `Badge / Button / Tabs / Dialog / Avatar / Switch / MovieCard`，不新增 className。
+
+工作量约 1.5 周：后端表迁移与 API 3 天、批量任务 1 天、演员检查 1 天、前端 3 到 4 天。表更名与字段扩展放在 M4 迁 `monitor` 包时一并做，其余在 M6 之后。
 
 ---
 
@@ -392,10 +473,12 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 
 ---
 
-## 8. 需要你确认的事项
+## 8. 决定记录
 
-1. **JavBus 固件采集。** 我需要一份真实的详情页 HTML 和一份 ajax 磁力片段做测试固件。这台机器若能通过代理访问 JavBus 我可以自己抓；否则请你保存两份响应到 `internal/javbus/testdata/`。
-2. **`golang.org/x/net/html` 提升为直接依赖**是否可接受（它已在 `go.sum` 中，只是 `go.mod` 里标注 indirect）。
-3. **代理默认值**：JavDB 开、JavBus 开、115 关。是否符合你的部署环境。
-4. **监控自动推送策略**默认值：仅 JavDB 磁力，还是 JavDB 与 JavBus 都允许。
-5. **`config.Runtime` 的环境变量前缀与命名**是否需要现在就定稿并写进 README，还是先以内部常量集中、后续再开放。
+- `golang.org/x/net/html` 提升为直接依赖。
+- 代理：一个开关一个地址；开启时 JavDB 与 JavBus 走代理，115 永远直连。JavBus 无镜像，不做端点管理。
+- JavBus 数据默认关闭，设置页可开。
+- 磁力按来源加徽章。
+- 追踪改为订阅，支持影片与演员；自动推送默认值在设置页由用户选择；独立路由 `/subscriptions` 进 `FloatingNav`；支持单部、多选、一键入库，批量走任务队列。
+- 审计文档已删除（提交 `badcfa5`）。
+- `config.Runtime` 的环境变量命名先内部集中，对外开放的在实现时逐个写进 README。
