@@ -1,0 +1,15 @@
+[
+  {
+    "id": "movie-exact",
+    "library_id": 7,
+    "state": "in_library"
+  },
+  {
+    "id": "movie-near",
+    "state": "not_in_library"
+  },
+  {
+    "id": "movie-saving",
+    "state": "saving"
+  }
+]

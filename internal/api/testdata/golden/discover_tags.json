@@ -1,0 +1,16 @@
+[
+  {
+    "id": "category-1",
+    "name": "主題",
+    "tags": [
+      {
+        "id": "tag-1",
+        "name": "Tag"
+      },
+      {
+        "id": "tag-2",
+        "name": "Other"
+      }
+    ]
+  }
+]

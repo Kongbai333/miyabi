@@ -1,0 +1,22 @@
+[
+  {
+    "hash": "0000000000000000000000000000000000000003",
+    "name": "HD subtitle fixture",
+    "size": 1073741824,
+    "has_subtitle": true,
+    "hd": true,
+    "files_count": 3,
+    "created_at": "2026-08-03",
+    "uri": "magnet:?xt=urn:btih:0000000000000000000000000000000000000003"
+  },
+  {
+    "hash": "0000000000000000000000000000000000000002",
+    "name": "HD fixture",
+    "size": 17179869184,
+    "has_subtitle": false,
+    "hd": true,
+    "files_count": 2,
+    "created_at": "2026-08-02",
+    "uri": "magnet:?xt=urn:btih:0000000000000000000000000000000000000002"
+  }
+]

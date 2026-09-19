@@ -72,10 +72,26 @@ type persistedRoute struct {
 	Manual    bool   `json:"manual"`
 }
 
+// catalogueClient is the JavDB surface DiscoverService depends on. Tests
+// substitute fixtures; production always uses *javdb.Client.
+type catalogueClient interface {
+	Close()
+	Search(context.Context, string, javdb.SearchOptions) ([]javdb.Movie, error)
+	Browse(context.Context, javdb.BrowseOptions) ([]javdb.Movie, error)
+	MovieDetail(context.Context, string) (javdb.MovieDetail, error)
+	Magnets(context.Context, string) ([]javdb.Magnet, error)
+	FetchMedia(context.Context, string) (javdb.Media, error)
+	Tags(context.Context, javdb.Zone) ([]javdb.TagCategory, error)
+	ResolveMovieID(context.Context, string) (string, error)
+	Route() (javdb.RouteStatus, bool)
+	SelectRoute(context.Context, string) (javdb.RouteStatus, error)
+	Reselect(context.Context) (javdb.RouteStatus, error)
+}
+
 // DiscoverService combines JavDB catalogue data with Miyabi's local state.
 type DiscoverService struct {
 	database *ent.Client
-	javdb    *javdb.Client
+	javdb    catalogueClient
 	lists    *responseCache[[]javdb.Movie]
 	details  *responseCache[javdb.MovieDetail]
 	tags     *responseCache[[]javdb.TagCategory]

@@ -1,0 +1,65 @@
+{
+  "source": {
+    "account_id": "100",
+    "directory": {
+      "id": "10",
+      "name": "Movies",
+      "path": "/Movies"
+    }
+  },
+  "movies": [
+    {
+      "id": 7,
+      "code": "ABP-123",
+      "title": "Localized title",
+      "javdb_id": "movie-exact",
+      "cover": "/api/library/artwork/aa.jpg",
+      "poster": "/api/library/artwork/bb.jpg",
+      "fanart": "/api/library/artwork/cc.jpg",
+      "release_date": "2026-08-01",
+      "duration": 120,
+      "rating": 4.5,
+      "director": {
+        "id": "director-1",
+        "name": "Director"
+      },
+      "maker": {
+        "id": "maker-1",
+        "name": "Maker"
+      },
+      "series": {
+        "id": "series-1",
+        "name": "Series"
+      },
+      "actors": [
+        {
+          "id": "actor-1",
+          "name": "Actor"
+        }
+      ],
+      "tags": [
+        {
+          "id": 3,
+          "javdb_id": "tag-1",
+          "name": "Tag"
+        }
+      ],
+      "scrape_status": "done",
+      "watched": true
+    },
+    {
+      "id": 8,
+      "code": "ZZZ-999",
+      "title": "",
+      "duration": 0,
+      "rating": 0,
+      "actors": [],
+      "tags": [],
+      "scrape_status": "failed",
+      "watched": false
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "has_more": false
+}

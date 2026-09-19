@@ -1,0 +1,10 @@
+{
+  "data_directory": "/app/data",
+  "database_size_bytes": 4194304,
+  "cache": {
+    "size_bytes": 3145728,
+    "entry_count": 12,
+    "unused_size_bytes": 1048576,
+    "unused_entry_count": 2
+  }
+}

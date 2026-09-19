@@ -389,11 +389,22 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 
 **演员检查**：每天一次，调用现有 `Browse`：`EntityType=actor, EntityID=<id>, Sort=release, Order=desc, Page=1, Limit=40`，与 `cursor` 比对得到新作；每部新作创建一条影片订阅，`origin_id` 指向演员订阅，`auto_download` 继承演员订阅的设置。JavDB 限速 2 req/s，200 位演员每天只有几分钟请求量。
 
-**"入库"的语义**：对一条影片订阅执行入库 = 取聚合磁力，按现有排序选最佳一条（字幕 > 高清 > 体积，JavDB 来源优先），调用 `offline.Add`，状态转 `added`。没有磁力则保持 `waiting` 并置 `auto_download=true`，出磁力时自动推送。已在库中的影片（`movie-states` 为 `in_library`）不显示入库按钮。
+**"入库"的语义**：对一条影片订阅执行入库 = 取聚合磁力，按用户偏好选一条，调用 `offline.Add`，状态转 `added`。没有磁力则保持 `waiting` 并置 `auto_download=true`，出磁力时自动推送。已在库中的影片（`movie-states` 为 `in_library`）不显示入库按钮。
+
+**磁力偏好**（设置页"订阅"分区，全局默认，单条订阅可覆盖）：
+
+| 偏好 | 取值 | 选择规则 |
+| --- | --- | --- |
+| 字幕 | 优先 / 必须 / 不限 | "必须"时无字幕磁力不入库，保持等待 |
+| 高清 | 优先 / 必须 / 不限 | 同上 |
+| 无码破解 | 优先 / 必须 / 排除 / 不限 | "排除"时过滤掉 `-U/-UC/无码/破解/Leaked` 标签 |
+| 体积上限 | GiB，0 为不限 | 过滤 |
+
+实现为 `magnet.Picker{Preferences}.Pick(magnets) (Magnet, bool)`：先按"必须/排除"过滤，再按"优先"项从高到低打分（字幕、高清、无码各一档，同档按现有排序：体积、文件数、JavDB 来源优先），返回最佳或"无合格磁力"。`monitor.checkOne` 与批量入库都走同一个 Picker，`Inferred` 标签参与打分但权重减半。
 
 **批量入库必须走任务队列**：一次勾选几十部影片如果并发打 115 离线接口会触发风控。`POST /api/subscriptions/enqueue {ids | all: true}` 创建一个 `subscription_batch` 任务，由现有 pool（单 worker）顺序处理，每部之间间隔 1.5 到 3 秒随机，进度与失败明细通过现有 SSE `tasks` 事件推送，前端沿用 `TaskProgress` 与 toast。
 
-**设置页**新增"订阅"分区：影片订阅默认自动推送（默认开）、演员新作默认自动推送（默认关）、演员检查时间（默认每天 04:00）。
+**设置页**新增"订阅"分区：影片订阅默认自动推送（默认开）、演员新作默认自动推送（默认关）、演员检查时间（默认每天 04:00）、磁力偏好四项（默认：字幕优先、高清优先、无码不限、体积不限）。
 
 **API**
 

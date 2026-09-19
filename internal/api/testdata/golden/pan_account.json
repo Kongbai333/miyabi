@@ -1,0 +1,28 @@
+{
+  "connected": true,
+  "account": {
+    "id": "100",
+    "name": "fixture",
+    "avatar": "https://avatar.example/100.png",
+    "level": "vip",
+    "space": {
+      "total": {
+        "bytes": 1099511627776,
+        "formatted": "1TB"
+      },
+      "used": {
+        "bytes": 1073741824,
+        "formatted": "1GB"
+      },
+      "remaining": {
+        "bytes": 1098437885952,
+        "formatted": "1023GB"
+      }
+    }
+  },
+  "directory": {
+    "id": "10",
+    "name": "Movies",
+    "path": "/Movies"
+  }
+}

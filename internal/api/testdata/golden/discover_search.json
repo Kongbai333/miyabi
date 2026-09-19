@@ -1,0 +1,82 @@
+[
+  {
+    "id": "movie-exact",
+    "code": "ABP-123",
+    "title": "Localized title",
+    "origin_title": "Original title",
+    "release_date": "2026-08-01",
+    "duration": 120,
+    "rating": 4.5,
+    "thumbnail": "https://media.example/thumb.jpg",
+    "cover": "https://media.example/cover.jpg",
+    "preview_images": [
+      {
+        "thumbnail": "https://media.example/preview-thumb.jpg",
+        "original": "https://media.example/preview.jpg"
+      }
+    ],
+    "preview_video": "https://media.example/preview.m3u8",
+    "magnets_count": 3,
+    "has_subtitle": true,
+    "has_preview": true,
+    "actors": [
+      {
+        "id": "actor-1",
+        "name": "Actor",
+        "name_zht": "演員",
+        "gender": "female",
+        "avatar": "https://media.example/actor.jpg"
+      },
+      {
+        "id": "actor-2",
+        "name": "Actor Two",
+        "name_zht": "",
+        "gender": "male",
+        "avatar": "https://media.example/actor-two.jpg"
+      }
+    ],
+    "tags": [
+      {
+        "id": "tag-1",
+        "name": "Tag",
+        "name_zht": "標籤",
+        "category_id": "category-1"
+      }
+    ],
+    "series": {
+      "id": "series-1",
+      "name": "Series"
+    },
+    "maker": {
+      "id": "maker-1",
+      "name": "Maker"
+    },
+    "director": {
+      "id": "director-1",
+      "name": "Director"
+    },
+    "library_id": 7,
+    "state": "in_library",
+    "release_status": "released"
+  },
+  {
+    "id": "movie-near",
+    "code": "ABP-124",
+    "title": "Similar result",
+    "origin_title": "",
+    "release_date": "2027-01-01",
+    "duration": 0,
+    "rating": 0,
+    "thumbnail": "https://media.example/thumb-near.jpg",
+    "cover": "https://media.example/cover-near.jpg",
+    "preview_images": [],
+    "preview_video": "",
+    "magnets_count": 0,
+    "has_subtitle": false,
+    "has_preview": false,
+    "actors": [],
+    "tags": [],
+    "state": "not_in_library",
+    "release_status": "upcoming"
+  }
+]

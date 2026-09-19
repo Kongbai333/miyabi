@@ -1,0 +1,15 @@
+# Normalize line endings: LF in the repository and in every checkout.
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# Generated code
+internal/ent/** linguist-generated=true
+web/src/routeTree.gen.ts linguist-generated=true

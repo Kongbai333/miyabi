@@ -1,0 +1,66 @@
+[
+  {
+    "id": 3,
+    "type": "scan",
+    "status": "running",
+    "progress": 50,
+    "created_at": "2026-09-19T12:00:00Z",
+    "updated_at": "2026-09-19T12:01:00Z",
+    "source": {
+      "account_id": "100",
+      "directory": {
+        "id": "10",
+        "name": "Movies",
+        "path": "/Movies"
+      }
+    },
+    "scan": {
+      "stage": "scraping",
+      "current_path": "/Movies",
+      "directories_discovered": 2,
+      "directories_scanned": 2,
+      "files_scanned": 5,
+      "video_files": 2,
+      "matched_files": 2,
+      "unmatched_files": 0,
+      "movies": 2,
+      "removed_files": 0,
+      "removed_movies": 0,
+      "metadata_total": 2,
+      "metadata_completed": 1
+    }
+  },
+  {
+    "id": 2,
+    "type": "scan",
+    "status": "failed",
+    "progress": 0,
+    "error": "JavDB 返回的番号不一致",
+    "created_at": "2026-09-19T12:00:00Z",
+    "updated_at": "2026-09-19T12:00:00Z",
+    "source": {
+      "account_id": "100",
+      "directory": {
+        "id": "10",
+        "name": "Movies",
+        "path": "/Movies"
+      }
+    },
+    "scan": {
+      "stage": "done",
+      "current_path": "",
+      "directories_discovered": 0,
+      "directories_scanned": 0,
+      "files_scanned": 0,
+      "video_files": 0,
+      "matched_files": 0,
+      "unmatched_files": 0,
+      "movies": 0,
+      "removed_files": 0,
+      "removed_movies": 0,
+      "metadata_total": 0,
+      "metadata_completed": 0
+    },
+    "offline_task_id": 9
+  }
+]
