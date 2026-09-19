@@ -1,6 +1,14 @@
 # Miyabi
 
-接入 115 网盘和 JavDB 的媒体库管理工具。
+配合 115 网盘的一站式 Jav 管理平台。
+
+## 项目预览
+
+![媒体库](./screenshots/ScreenShot_2026-09-19_131853_357.png)
+![播放器](./screenshots/ScreenShot_2026-09-19_131853_237.png)
+![发现](./screenshots/ScreenShot_2026-09-19_132213_340.png)
+![搜索](./screenshots/ScreenShot_2026-09-19_132227_063.png)
+![设置](./screenshots/ScreenShot_2026-09-19_132249_331.png)
 
 ## Docker 部署
 
