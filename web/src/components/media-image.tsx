@@ -11,6 +11,7 @@ type MediaImageProps = {
   loading?: 'eager' | 'lazy'
   blurredBackground?: boolean
   onReady?: () => void
+  onImageLoad?: (image: HTMLImageElement) => void
   className?: string
 }
 
@@ -31,6 +32,7 @@ function MediaImageContent({
   loading = 'lazy',
   blurredBackground = false,
   onReady,
+  onImageLoad,
   concealed,
   className
 }: MediaImageProps & { concealed: boolean }) {
@@ -66,6 +68,7 @@ function MediaImageContent({
             className={cn('relative size-full', className)}
             onLoad={async event => {
               const image = event.currentTarget
+              onImageLoad?.(image)
               try {
                 if (typeof image.decode === 'function') await image.decode()
                 setStatus('ready')
