@@ -175,7 +175,7 @@ func NewFingerprintClient(opts FingerprintOptions) (tlsclient.HttpClient, error)
 **模型迁移**
 
 - `internal/javdb/model.go` 中的 `Movie、MovieDetail、MovieReference、Magnet、PreviewImage、Actor、Tag、TagOption、TagCategory、Series、Maker、Director、Zone、EntityType、SearchOptions、BrowseOptions` 迁入 `internal/domain`，JSON tag 不变。
-- 第一步在 javdb 包留 `type Movie = domain.Movie` 别名保证编译，全仓库替换引用后删除别名。
+- 不采用类型别名过渡（杜绝脚手架残留），直接一次性全仓原子替换为 `domain` 引用，保持代码整洁。
 - `service.DiscoverMovie` 等 DTO 改为内嵌 `domain.Movie`，黄金测试证明输出一致。
 - `javdb.Options`、`RouteStatus`、`RouteCandidate`、`APIError`、`HTTPError` 留在 javdb（属于该客户端的运维概念）。
 
@@ -508,3 +508,4 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 - 审计文档已删除（提交 `badcfa5`）。
 - `config.Runtime` 的环境变量命名先内部集中，对外开放的在实现时逐个写进 README。
 - 番号识别与刮削校验（2026-09-20）：针对 `200GANA-3458` 与 `CARIB` 等前缀不一致问题，不引入静态硬匹配字典；在 M4 (B4) 落地“NFO 与文件名双向容差亲缘校验”策略，核心数字一致且前缀包含时自动放行并收敛为 NFO 标准番号。
+- 模型迁移（2026-09-20）：M2 (B1) 放弃临时类型别名（type alias）过渡方案，采用全仓一次性原子替换，避免遗留脚手架代码。
