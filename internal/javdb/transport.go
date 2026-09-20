@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
 	"net/url"
 	"strings"
 	"time"
 
 	http "github.com/bogdanfinn/fhttp"
-	tlsclient "github.com/bogdanfinn/tls-client"
-	"github.com/bogdanfinn/tls-client/profiles"
+	"github.com/ppxb/miyabi/internal/netx"
 )
 
 type httpClient interface {
@@ -37,23 +35,16 @@ func (e *networkError) Unwrap() error {
 	return e.err
 }
 
-func newTransport(host string, options Options) (*transport, error) {
+// newTransport builds a fingerprinted API client bound to one host. The proxy
+// is fixed per transport, so callers rebuild it when the configuration changes.
+func newTransport(host string, proxy *url.URL, options Options) (*transport, error) {
 	host, err := normalizeHost(host)
 	if err != nil {
 		return nil, err
 	}
-	clientOptions := []tlsclient.HttpClientOption{
-		tlsclient.WithTimeoutSeconds(int(math.Ceil(options.Timeout.Seconds()))),
-		tlsclient.WithClientProfile(profiles.Chrome_120),
-		tlsclient.WithNotFollowRedirects(),
-		tlsclient.WithCookieJar(tlsclient.NewCookieJar()),
-	}
-	if options.Proxy != nil {
-		if proxy := options.Proxy.Resolve(); proxy != nil {
-			clientOptions = append(clientOptions, tlsclient.WithProxyUrl(proxy.String()))
-		}
-	}
-	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), clientOptions...)
+	client, err := netx.NewFingerprintClient(netx.FingerprintOptions{
+		Timeout: options.Timeout, Proxy: proxy, CookieJar: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create JavDB transport: %w", err)
 	}

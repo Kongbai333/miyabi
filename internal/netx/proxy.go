@@ -9,10 +9,9 @@ import (
 	"sync/atomic"
 )
 
-var errUnsupportedProxyScheme = errors.New("proxy URL scheme must be http, https or socks5")
-
-// MaskedPassword is the replacement placeholder displayed when proxy credentials are sent to clients.
-const MaskedPassword = "******"
+// ErrInvalidProxy wraps every configuration validation failure so callers can
+// map it to a client error without inspecting the message.
+var ErrInvalidProxy = errors.New("代理配置无效")
 
 // ProxyConfig is the process-wide upstream proxy configuration. A disabled
 // proxy keeps its URL so it can be enabled again without re-entering it.
@@ -46,19 +45,14 @@ func NewProxyManager(initial ProxyConfig) (*ProxyManager, error) {
 	return manager, nil
 }
 
-// Validate checks a configuration without creating a long-lived manager.
-func Validate(config ProxyConfig) error {
-	_, err := makeProxyState(config)
-	return err
-}
-
-// Normalize validates a configuration and returns the value used internally.
-func Normalize(config ProxyConfig) (ProxyConfig, error) {
+// Normalize validates a configuration and returns the value stored internally
+// together with the proxy URL that would be used, or nil when direct.
+func Normalize(config ProxyConfig) (ProxyConfig, *url.URL, error) {
 	state, err := makeProxyState(config)
 	if err != nil {
-		return ProxyConfig{}, err
+		return ProxyConfig{}, nil, err
 	}
-	return state.config, nil
+	return state.config, state.resolve(), nil
 }
 
 // Config returns the current configuration by value.
@@ -69,12 +63,7 @@ func (manager *ProxyManager) Config() ProxyConfig {
 // Resolve returns a copy of the active proxy URL, or nil when the proxy is
 // disabled. The returned URL can be modified by the caller safely.
 func (manager *ProxyManager) Resolve() *url.URL {
-	state := manager.current.Load()
-	if !state.config.Enabled || state.proxy == nil {
-		return nil
-	}
-	proxy := *state.proxy
-	return &proxy
+	return manager.current.Load().resolve()
 }
 
 // Update validates and publishes a new configuration. Subscribers are
@@ -120,6 +109,14 @@ func (manager *ProxyManager) Unsubscribe(subscription <-chan struct{}) {
 	}
 }
 
+func (state *proxyState) resolve() *url.URL {
+	if !state.config.Enabled || state.proxy == nil {
+		return nil
+	}
+	proxy := *state.proxy
+	return &proxy
+}
+
 func makeProxyState(config ProxyConfig) (*proxyState, error) {
 	config.URL = strings.TrimSpace(config.URL)
 	proxy, err := parseProxyURL(config.URL)
@@ -135,49 +132,15 @@ func parseProxyURL(raw string) (*url.URL, error) {
 	}
 	proxy, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		return nil, fmt.Errorf("%w: 代理地址格式错误", ErrInvalidProxy)
 	}
-	if proxy.Scheme == "" || proxy.Host == "" || proxy.Hostname() == "" {
-		return nil, errors.New("proxy URL must include a scheme and host")
+	if proxy.Scheme == "" || proxy.Hostname() == "" {
+		return nil, fmt.Errorf("%w: 代理地址必须包含协议（如 http://）与主机地址", ErrInvalidProxy)
 	}
-	switch strings.ToLower(proxy.Scheme) {
+	proxy.Scheme = strings.ToLower(proxy.Scheme)
+	switch proxy.Scheme {
 	case "http", "https", "socks5":
-		proxy.Scheme = strings.ToLower(proxy.Scheme)
-	default:
-		return nil, errUnsupportedProxyScheme
+		return proxy, nil
 	}
-	return proxy, nil
-}
-
-// RestoreMaskedPassword checks whether the candidate proxy URL contains the
-// masked placeholder password ("******"). If so, and if the scheme, host, and
-// username match the currently stored proxy URL, it restores the real password
-// from the existing URL so that the credentials are not destroyed.
-func RestoreMaskedPassword(candidate string, existing string) string {
-	if candidate == "" || existing == "" {
-		return candidate
-	}
-	candURL, err := url.Parse(candidate)
-	if err != nil || candURL.User == nil {
-		return candidate
-	}
-	pass, hasPass := candURL.User.Password()
-	if !hasPass || pass != MaskedPassword {
-		return candidate
-	}
-	existURL, err := url.Parse(existing)
-	if err != nil || existURL.User == nil {
-		return candidate
-	}
-	existPass, existHasPass := existURL.User.Password()
-	if !existHasPass {
-		return candidate
-	}
-	if strings.EqualFold(candURL.Scheme, existURL.Scheme) &&
-		strings.EqualFold(candURL.Host, existURL.Host) &&
-		candURL.User.Username() == existURL.User.Username() {
-		candURL.User = url.UserPassword(candURL.User.Username(), existPass)
-		return candURL.String()
-	}
-	return candidate
+	return nil, fmt.Errorf("%w: 代理协议仅支持 http://、https:// 或 socks5://", ErrInvalidProxy)
 }

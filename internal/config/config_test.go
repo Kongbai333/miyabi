@@ -34,7 +34,7 @@ func TestLoadDefaultsAndEnvironment(t *testing.T) {
 				AccessPassword: " password with spaces "},
 		},
 		{
-			name: "empty optional values disable proxy and access gate",
+			name: "empty optional value disables access gate",
 			env:  map[string]string{"MIYABI_ACCESS_PASSWORD": ""},
 			want: Config{Listen: ":8080", DataDir: "./data", LogLevel: "info"},
 		},

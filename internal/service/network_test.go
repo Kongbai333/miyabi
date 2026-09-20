@@ -58,34 +58,3 @@ func TestNetworkServiceRejectsInvalidUpdateWithoutChangingCurrentValue(t *testin
 		t.Fatalf("invalid update changed config: %+v", got)
 	}
 }
-
-func TestNetworkServiceRestoresMaskedPassword(t *testing.T) {
-	store, err := database.Open(t.Context(), t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := NewNetworkService(t.Context(), store.Client)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	initial := netx.ProxyConfig{Enabled: true, URL: "http://admin:secret123@127.0.0.1:7890"}
-	if err := service.UpdateNetwork(t.Context(), initial); err != nil {
-		t.Fatal(err)
-	}
-
-	// Update with masked password should keep real password
-	maskedUpdate := netx.ProxyConfig{Enabled: false, URL: "http://admin:******@127.0.0.1:7890"}
-	if err := service.UpdateNetwork(t.Context(), maskedUpdate); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := service.Network(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Enabled != false || got.URL != "http://admin:secret123@127.0.0.1:7890" {
-		t.Fatalf("expected real password preserved, got: %+v", got)
-	}
-}

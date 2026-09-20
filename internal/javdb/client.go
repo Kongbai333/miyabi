@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"slices"
 	"sync"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
-	"github.com/ppxb/miyabi/internal/netx"
 	"golang.org/x/sync/singleflight"
 	"golang.org/x/time/rate"
 )
@@ -201,29 +201,51 @@ func (c *Client) Close() {
 	}
 }
 
+// proxyURL returns the proxy to bind into a new transport, or nil for direct.
+func (c *Client) proxyURL() *url.URL {
+	if c.options.Proxy == nil {
+		return nil
+	}
+	return c.options.Proxy.Resolve()
+}
+
+// watchProxy rebuilds the active transport whenever the proxy changes and,
+// for automatically selected routes, re-measures candidates through it.
 func (c *Client) watchProxy() {
 	for {
 		select {
 		case <-c.routeContext.Done():
 			return
 		case <-c.proxyChanges:
-			c.selectionMu.Lock()
-			state := c.current.Load()
-			if state != nil {
-				replacement, err := newTransport(state.status.Host, c.options)
-				if err == nil {
-					previous := c.current.Swap(&routeState{transport: replacement, status: state.status})
-					previous.transport.closeIdleConnections()
-				}
+			state, err := c.reinstall()
+			if err != nil {
+				slog.Warn("JavDB transport keeps previous proxy after change", "error", err)
+				continue
 			}
-			c.selectionMu.Unlock()
 			if state != nil && !state.status.Manual {
-				go func() {
-					_, _ = c.Reselect(c.routeContext)
-				}()
+				go func() { _, _ = c.Reselect(c.routeContext) }()
 			}
 		}
 	}
+}
+
+// reinstall swaps the active route's transport for one built with the current
+// proxy. It returns nil when no route is installed yet.
+func (c *Client) reinstall() (*routeState, error) {
+	c.selectionMu.Lock()
+	defer c.selectionMu.Unlock()
+	previous := c.current.Load()
+	if previous == nil {
+		return nil, nil
+	}
+	transport, err := newTransport(previous.status.Host, c.proxyURL(), c.options)
+	if err != nil {
+		return nil, err
+	}
+	state := &routeState{transport: transport, status: previous.status}
+	c.current.Store(state)
+	previous.transport.closeIdleConnections()
+	return state, nil
 }
 
 func (c *Client) getJSON(
@@ -321,7 +343,7 @@ func (c *Client) selectAndInstall(ctx context.Context, options routeSelection) (
 }
 
 func (c *Client) installRoute(ctx context.Context, status RouteStatus) (*routeState, error) {
-	transport, err := newTransport(status.Host, c.options)
+	transport, err := newTransport(status.Host, c.proxyURL(), c.options)
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +364,11 @@ func (c *Client) installRoute(ctx context.Context, status RouteStatus) (*routeSt
 }
 
 func (c *Client) probe(ctx context.Context, host string, onStart func(time.Time)) (time.Duration, map[string]any, error) {
-	transport, err := newTransport(host, c.options)
+	return probeHost(ctx, host, c.proxyURL(), c.options, onStart)
+}
+
+func probeHost(ctx context.Context, host string, proxy *url.URL, options Options, onStart func(time.Time)) (time.Duration, map[string]any, error) {
+	transport, err := newTransport(host, proxy, options)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -377,26 +403,9 @@ func routeFailure(err error) bool {
 	return false
 }
 
-// Probe checks connectivity to a bootstrap JavDB route using the given proxy.
-func Probe(ctx context.Context, proxy *url.URL) (time.Duration, error) {
-	options := Options{Timeout: 8 * time.Second}
-	if proxy != nil {
-		mgr, err := netx.NewProxyManager(netx.ProxyConfig{Enabled: true, URL: proxy.String()})
-		if err != nil {
-			return 0, err
-		}
-		options.Proxy = mgr
-	}
-	t, err := newTransport(bootstrapHosts[0], options)
-	if err != nil {
-		return 0, err
-	}
-	defer t.closeIdleConnections()
-
-	started := time.Now()
-	var startup map[string]any
-	if err := t.getJSON(ctx, "/api/v1/startup", nil, defaultLanguage, &startup); err != nil {
-		return 0, err
-	}
-	return time.Since(started), nil
+// Probe measures the bootstrap JavDB route through the given proxy, or
+// directly when proxy is nil.
+func Probe(ctx context.Context, proxy *url.URL, timeout time.Duration) (time.Duration, error) {
+	latency, _, err := probeHost(ctx, bootstrapHosts[0], proxy, Options{Timeout: timeout}, nil)
+	return latency, err
 }

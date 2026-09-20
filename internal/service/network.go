@@ -3,20 +3,20 @@ package service
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/url"
 	"sync"
 	"time"
 
-	http "github.com/bogdanfinn/fhttp"
-	tlsclient "github.com/bogdanfinn/tls-client"
-	"github.com/bogdanfinn/tls-client/profiles"
 	"github.com/ppxb/miyabi/internal/ent"
+	"github.com/ppxb/miyabi/internal/javbus"
 	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/netx"
 )
 
-const networkProxySetting = "network.proxy"
+const (
+	networkProxySetting = "network.proxy"
+	networkProbeTimeout = 8 * time.Second
+)
 
 // NetworkProbeResult reports the test status and latency of an upstream target.
 type NetworkProbeResult struct {
@@ -39,12 +39,9 @@ type NetworkService struct {
 }
 
 func NewNetworkService(ctx context.Context, database *ent.Client) (*NetworkService, error) {
-	config, found, err := loadSetting[netx.ProxyConfig](ctx, database, networkProxySetting)
+	config, _, err := loadSetting[netx.ProxyConfig](ctx, database, networkProxySetting)
 	if err != nil {
 		return nil, err
-	}
-	if !found {
-		config = netx.ProxyConfig{}
 	}
 	proxy, err := netx.NewProxyManager(config)
 	if err != nil {
@@ -61,10 +58,10 @@ func (service *NetworkService) Network(context.Context) (netx.ProxyConfig, error
 	return service.proxy.Config(), nil
 }
 
+// UpdateNetwork validates, persists and broadcasts the configuration. Clients
+// subscribed to the manager rebuild their transports on their own.
 func (service *NetworkService) UpdateNetwork(ctx context.Context, config netx.ProxyConfig) error {
-	current := service.proxy.Config()
-	config.URL = netx.RestoreMaskedPassword(config.URL, current.URL)
-	normalized, err := netx.Normalize(config)
+	normalized, _, err := netx.Normalize(config)
 	if err != nil {
 		return err
 	}
@@ -74,86 +71,30 @@ func (service *NetworkService) UpdateNetwork(ctx context.Context, config netx.Pr
 	return service.proxy.Update(normalized)
 }
 
-// TestNetwork probes JavDB and JavBus concurrently with candidate or active settings.
+// TestNetwork probes JavDB and JavBus concurrently through the candidate
+// configuration without persisting it.
 func (service *NetworkService) TestNetwork(ctx context.Context, config netx.ProxyConfig) (NetworkTestResponse, error) {
-	current := service.proxy.Config()
-	config.URL = netx.RestoreMaskedPassword(config.URL, current.URL)
-	normalized, err := netx.Normalize(config)
+	_, proxy, err := netx.Normalize(config)
 	if err != nil {
 		return NetworkTestResponse{}, err
 	}
-
-	var proxyURL *url.URL
-	if normalized.Enabled && normalized.URL != "" {
-		parsed, err := url.Parse(normalized.URL)
-		if err == nil {
-			proxyURL = parsed
-		}
-	}
-
-	probeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, networkProbeTimeout)
 	defer cancel()
 
-	var resp NetworkTestResponse
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		dur, err := javdb.Probe(probeCtx, proxyURL)
+	var response NetworkTestResponse
+	var wait sync.WaitGroup
+	probe := func(target *NetworkProbeResult, measure func(context.Context, *url.URL, time.Duration) (time.Duration, error)) {
+		defer wait.Done()
+		latency, err := measure(ctx, proxy, networkProbeTimeout)
 		if err != nil {
-			resp.JavDB = NetworkProbeResult{Available: false, Error: err.Error()}
-		} else {
-			resp.JavDB = NetworkProbeResult{Available: true, LatencyMS: dur.Milliseconds()}
+			*target = NetworkProbeResult{Error: err.Error()}
+			return
 		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		dur, err := probeJavBus(probeCtx, proxyURL)
-		if err != nil {
-			resp.JavBus = NetworkProbeResult{Available: false, Error: err.Error()}
-		} else {
-			resp.JavBus = NetworkProbeResult{Available: true, LatencyMS: dur.Milliseconds()}
-		}
-	}()
-
-	wg.Wait()
-	return resp, nil
-}
-
-func probeJavBus(ctx context.Context, proxy *url.URL) (time.Duration, error) {
-	clientOptions := []tlsclient.HttpClientOption{
-		tlsclient.WithTimeoutSeconds(8),
-		tlsclient.WithClientProfile(profiles.Chrome_120),
-		tlsclient.WithNotFollowRedirects(),
+		*target = NetworkProbeResult{Available: true, LatencyMS: latency.Milliseconds()}
 	}
-	if proxy != nil {
-		clientOptions = append(clientOptions, tlsclient.WithProxyUrl(proxy.String()))
-	}
-	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), clientOptions...)
-	if err != nil {
-		return 0, err
-	}
-	defer client.CloseIdleConnections()
-
-	started := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.javbus.com", nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Cookie", "dv=1")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	_, _ = io.CopyN(io.Discard, resp.Body, 512)
-
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-		return time.Since(started), nil
-	}
-	return 0, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	wait.Add(2)
+	go probe(&response.JavDB, javdb.Probe)
+	go probe(&response.JavBus, javbus.Probe)
+	wait.Wait()
+	return response, nil
 }

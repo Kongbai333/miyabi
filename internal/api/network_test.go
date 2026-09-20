@@ -16,6 +16,7 @@ import (
 
 type networkStub struct {
 	config     netx.ProxyConfig
+	tested     netx.ProxyConfig
 	testResult service.NetworkTestResponse
 }
 
@@ -28,11 +29,12 @@ func (stub *networkStub) UpdateNetwork(_ context.Context, config netx.ProxyConfi
 	return nil
 }
 
-func (stub *networkStub) TestNetwork(_ context.Context, _ netx.ProxyConfig) (service.NetworkTestResponse, error) {
+func (stub *networkStub) TestNetwork(_ context.Context, config netx.ProxyConfig) (service.NetworkTestResponse, error) {
+	stub.tested = config
 	return stub.testResult, nil
 }
 
-func TestNetworkEndpointsReadWriteAndRedactPassword(t *testing.T) {
+func TestNetworkEndpointsReadAndWrite(t *testing.T) {
 	stub := &networkStub{config: netx.ProxyConfig{Enabled: true, URL: "http://user:secret@127.0.0.1:7890"}}
 	router := NewRouter(Dependencies{Network: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 
@@ -45,8 +47,8 @@ func TestNetworkEndpointsReadWriteAndRedactPassword(t *testing.T) {
 	if err := json.Unmarshal(get.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.URL != "http://user:******@127.0.0.1:7890" {
-		t.Fatalf("GET exposed or lost proxy password: %q", response.URL)
+	if response != stub.config {
+		t.Fatalf("GET returned %+v, want %+v", response, stub.config)
 	}
 
 	put := httptest.NewRecorder()
@@ -83,5 +85,16 @@ func TestNetworkTestEndpoint(t *testing.T) {
 	}
 	if result.JavBus.Available || result.JavBus.Error != "timeout" {
 		t.Fatalf("unexpected JavBus result: %+v", result.JavBus)
+	}
+	if stub.tested != stub.config {
+		t.Fatalf("empty body tested %+v, want saved config %+v", stub.tested, stub.config)
+	}
+
+	candidate := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/settings/network/test", strings.NewReader(`{"enabled":true,"url":"socks5://127.0.0.1:1080"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(candidate, request)
+	if candidate.Code != http.StatusOK || stub.tested != (netx.ProxyConfig{Enabled: true, URL: "socks5://127.0.0.1:1080"}) {
+		t.Fatalf("candidate status=%d tested=%+v", candidate.Code, stub.tested)
 	}
 }

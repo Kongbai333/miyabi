@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/ppxb/miyabi/internal/netx"
 	"golang.org/x/time/rate"
 )
 
@@ -22,14 +23,13 @@ type Client struct {
 	limiter *rate.Limiter
 }
 
+// New creates a 115 client. 115 is always reached directly: routing it through
+// the upstream proxy is slower and trips risk control.
 func New() *Client {
-	client := resty.New().SetTimeout(35 * time.Second)
-	// Video transfers have no total timeout; only waiting for response headers is bounded.
-	media := resty.New()
-	media.GetClient().Transport.(*http.Transport).ResponseHeaderTimeout = 35 * time.Second
 	return &Client{
-		http:    client,
-		media:   media,
+		http: netx.NewDirectRestyClient(netx.RestyOptions{Timeout: 35 * time.Second}),
+		// Video transfers have no total timeout; only waiting for response headers is bounded.
+		media:   netx.NewDirectRestyClient(netx.RestyOptions{ResponseHeaderTimeout: 35 * time.Second}),
 		limiter: rate.NewLimiter(rate.Every(500*time.Millisecond), 1),
 	}
 }

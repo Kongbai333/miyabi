@@ -60,7 +60,7 @@ export function useUpdateNetworkConfig() {
 
 export function useTestNetwork() {
   return useMutation({
-    mutationFn: (candidate?: Partial<NetworkConfig>) =>
+    mutationFn: (candidate: NetworkConfig) =>
       apiPost<NetworkTestResponse>('/api/settings/network/test', candidate)
   })
 }

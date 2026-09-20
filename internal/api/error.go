@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ppxb/miyabi/internal/ent"
+	"github.com/ppxb/miyabi/internal/netx"
 	"github.com/ppxb/miyabi/internal/pan"
 	"github.com/ppxb/miyabi/internal/service"
 	sloggin "github.com/samber/slog-gin"
@@ -56,7 +57,8 @@ func errorMiddleware(logger *slog.Logger) gin.HandlerFunc {
 		switch {
 		case errors.As(err, &invalidRequest):
 			status = http.StatusBadRequest
-		case errors.Is(err, service.ErrMediaDirectoryRequired), errors.Is(err, service.ErrMagnetNotFound), errors.Is(err, service.ErrInvalidWatchProgress):
+		case errors.Is(err, service.ErrMediaDirectoryRequired), errors.Is(err, service.ErrMagnetNotFound),
+			errors.Is(err, service.ErrInvalidWatchProgress), errors.Is(err, netx.ErrInvalidProxy):
 			status = http.StatusBadRequest
 		case errors.Is(err, service.ErrWatchHistorySourceChanged), errors.Is(err, service.ErrCacheBusy):
 			status = http.StatusConflict

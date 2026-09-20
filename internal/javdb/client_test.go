@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/ppxb/miyabi/internal/netx"
 	"golang.org/x/time/rate"
 )
 
@@ -254,5 +255,35 @@ func TestClientRouteSelectionStopsOnTimeoutAndClose(t *testing.T) {
 				t.Fatalf("shutdown %t: error = %v", shutdown, err)
 			}
 		})
+	}
+}
+
+func TestClientRebuildsTransportWhenProxyChanges(t *testing.T) {
+	proxy, err := netx.NewProxyManager(netx.ProxyConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Options{
+		DeviceUUID: "00000000-0000-4000-8000-000000000000",
+		CachedHost: "https://cached.example", ManualRoute: true, Proxy: proxy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	before := client.current.Load()
+
+	if err := proxy.Update(netx.ProxyConfig{Enabled: true, URL: "http://127.0.0.1:7890"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for client.current.Load() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("transport was not rebuilt after proxy change")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after := client.current.Load(); after.status.Host != before.status.Host || !after.status.Manual {
+		t.Fatalf("route status changed during reinstall: %+v", after.status)
 	}
 }

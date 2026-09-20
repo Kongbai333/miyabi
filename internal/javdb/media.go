@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/ppxb/miyabi/internal/netx"
 )
 
 // Media is a decoded image served by JavDB's CDN.
@@ -18,18 +19,14 @@ type Media struct {
 }
 
 func newMediaClient(options Options) *resty.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	restyOptions := netx.RestyOptions{Timeout: options.Timeout}
+	client := netx.NewDirectRestyClient(restyOptions)
 	if options.Proxy != nil {
-		transport.Proxy = func(*http.Request) (*url.URL, error) {
-			return options.Proxy.Resolve(), nil
-		}
+		client = netx.NewRestyClient(options.Proxy, restyOptions)
 	}
-	client := resty.New().
-		SetTimeout(options.Timeout).
+	return client.
 		SetHeader("User-Agent", userAgent).
-		SetRedirectPolicy(resty.NoRedirectPolicy()).
-		SetTransport(transport)
-	return client
+		SetRedirectPolicy(resty.NoRedirectPolicy())
 }
 
 // FetchMedia downloads and decodes a CDN image independently of API route

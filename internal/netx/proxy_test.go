@@ -1,6 +1,7 @@
 package netx
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -59,8 +60,8 @@ func TestProxyManagerRejectsInvalidConfigurations(t *testing.T) {
 		{name: "malformed URL", config: ProxyConfig{URL: "http://[::1"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewProxyManager(test.config); err == nil {
-				t.Fatal("expected configuration error")
+			if _, err := NewProxyManager(test.config); !errors.Is(err, ErrInvalidProxy) {
+				t.Fatalf("NewProxyManager() error = %v, want ErrInvalidProxy", err)
 			}
 		})
 	}
@@ -121,55 +122,12 @@ func TestProxyManagerResolveReturnsCopy(t *testing.T) {
 	}
 }
 
-func TestRestoreMaskedPassword(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		candidate string
-		existing  string
-		want      string
-	}{
-		{
-			name:      "restores password when masked and identity matches",
-			candidate: "http://user:******@127.0.0.1:7890",
-			existing:  "http://user:secret123@127.0.0.1:7890",
-			want:      "http://user:secret123@127.0.0.1:7890",
-		},
-		{
-			name:      "preserves new password when not masked",
-			candidate: "http://user:newpass@127.0.0.1:7890",
-			existing:  "http://user:secret123@127.0.0.1:7890",
-			want:      "http://user:newpass@127.0.0.1:7890",
-		},
-		{
-			name:      "does not restore if host differs",
-			candidate: "http://user:******@192.168.1.1:7890",
-			existing:  "http://user:secret123@127.0.0.1:7890",
-			want:      "http://user:******@192.168.1.1:7890",
-		},
-		{
-			name:      "does not restore if user differs",
-			candidate: "http://other:******@127.0.0.1:7890",
-			existing:  "http://user:secret123@127.0.0.1:7890",
-			want:      "http://other:******@127.0.0.1:7890",
-		},
-		{
-			name:      "does not restore if existing has no password",
-			candidate: "http://user:******@127.0.0.1:7890",
-			existing:  "http://user@127.0.0.1:7890",
-			want:      "http://user:******@127.0.0.1:7890",
-		},
-		{
-			name:      "handles empty inputs gracefully",
-			candidate: "",
-			existing:  "http://127.0.0.1:7890",
-			want:      "",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			got := RestoreMaskedPassword(test.candidate, test.existing)
-			if got != test.want {
-				t.Errorf("RestoreMaskedPassword(%q, %q) = %q, want %q", test.candidate, test.existing, got, test.want)
-			}
-		})
+func TestNormalizeTrimsAndResolves(t *testing.T) {
+	config, proxy, err := Normalize(ProxyConfig{Enabled: true, URL: " http://127.0.0.1:7890 "})
+	if err != nil || config.URL != "http://127.0.0.1:7890" || proxy == nil || proxy.Host != "127.0.0.1:7890" {
+		t.Fatalf("Normalize() = %+v, %v, %v", config, proxy, err)
+	}
+	if _, proxy, err := Normalize(ProxyConfig{URL: "http://127.0.0.1:7890"}); err != nil || proxy != nil {
+		t.Fatalf("Normalize(disabled) proxy = %v, err = %v", proxy, err)
 	}
 }

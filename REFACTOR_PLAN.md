@@ -87,15 +87,15 @@ type Source interface {
 
 ---
 
-## 2. 工作线 A：全局代理
+## 2. 工作线 A：全局代理（已完成，2026-09-20）
 
-### 2.1 现状
+### 2.1 现状（改造前）
 
-- 只有环境变量 `MIYABI_PROXY`，进程启动时一次性传给 `javdb.Options.Proxy` 与 `pan.Options.Proxy`（`cmd/miyabi/main.go:59,67`）。
-- 四处各自构造 HTTP 客户端：`javdb/transport.go:54`（tls-client）、`javdb/media.go:21`（resty）、`pan/client.go:30,32`（resty ×2）。运行时不可改，UI 不可见。
+- 只有环境变量 `MIYABI_PROXY`，进程启动时一次性传给 `javdb.Options.Proxy` 与 `pan.Options.Proxy`。
+- 四处各自构造 HTTP 客户端：`javdb/transport.go`（tls-client）、`javdb/media.go`（resty）、`pan/client.go`（resty ×2）。运行时不可改，UI 不可见。
 - 115 走代理通常适得其反（国内直连更快，且代理出口可能触发风控），JavDB/JavBus 通常必须走代理。所以"全局"应理解为：一个全局代理地址，按目标可开关。
 
-### 2.2 设计
+### 2.2 设计（按实现结果修订）
 
 **配置模型**（settings 表，key `network.proxy`）
 
@@ -103,48 +103,53 @@ type Source interface {
 { "enabled": true, "url": "http://127.0.0.1:10777" }
 ```
 
-- 一个开关加一个地址，没有按目标的细分。开启时 JavDB 与 JavBus 全部走代理，115 永远直连（115 走代理更慢且容易触发风控，这是固定规则不是选项）。
-- `MIYABI_PROXY` 保留：首次启动且 settings 无记录时作为初始值写入并置 `enabled=true`；之后以 settings 为准。
-- 支持 `http://`、`https://`、`socks5://`，可带用户名密码。
+- 一个开关加一个地址，没有按目标的细分。开启时 JavDB 与 JavBus 全部走代理，115 永远直连。
+- `MIYABI_PROXY` 与 `config.Proxy` **彻底删除**，不作为初始种子。理由：115 必须直连，JavDB 也提供直连线路，没有"必须靠环境变量才能启动"的场景；settings 无记录时默认直连。
+- 支持 `http://`、`https://`、`socks5://`，可带用户名密码。**不做密码脱敏**：自托管单用户，且已有访问密码门禁，脱敏加"******"回填只增加复杂度。
+- 校验失败统一包装 `netx.ErrInvalidProxy`，错误文案为中文，API 错误中间件映射为 400，前端直接展示后端消息，不做字符串匹配。
 
 **`internal/netx`**
 
 ```go
-type ProxyManager struct { current atomic.Pointer[ProxyConfig]; subs []chan struct{} }
-func (m *ProxyManager) Resolve() *url.URL                // 未开启返回 nil，每个请求调用
-func (m *ProxyManager) Update(ctx, ProxyConfig) error     // 校验、持久化、通知
+// proxy.go
+type ProxyConfig struct { Enabled bool; URL string }
+func NewProxyManager(ProxyConfig) (*ProxyManager, error)
+func Normalize(ProxyConfig) (ProxyConfig, *url.URL, error)   // 校验 + 去空白 + 解析，url 在未开启时为 nil
+func (m *ProxyManager) Config() ProxyConfig
+func (m *ProxyManager) Resolve() *url.URL                     // 未开启返回 nil，每个请求调用
+func (m *ProxyManager) Update(ProxyConfig) error              // 校验、发布、广播（持久化在 service 层）
 func (m *ProxyManager) Subscribe() <-chan struct{}
+func (m *ProxyManager) Unsubscribe(<-chan struct{})
 
-// 客户端工厂：所有上游 HTTP 客户端只能从这里创建
-func NewRestyClient(m *ProxyManager, opts RestyOptions) *resty.Client          // JavDB 媒体、JavBus 详情
+// client.go：所有上游 HTTP 客户端只能从这里创建
+func NewRestyClient(m *ProxyManager, opts RestyOptions) *resty.Client          // JavDB 媒体、（后续）JavBus 详情
 func NewDirectRestyClient(opts RestyOptions) *resty.Client                      // 115，永不读代理
-func NewFingerprintClient(m *ProxyManager, opts FingerprintOptions) (tlsclient.HttpClient, error)
+func NewFingerprintClient(opts FingerprintOptions) (tlsclient.HttpClient, error) // JavDB API、JavBus；代理在构造时固定
 ```
 
-- resty：注入自定义 `http.Transport{Proxy: func(*http.Request) (*url.URL, error) { return m.Resolve(), nil }}`，每个请求实时取值，改代理无需重建客户端、无并发竞态。
-- tls-client：代理只能在构造时指定。JavDB 的 transport 本来就在每次路由安装时重建（`javdb/client.go:installRoute`），`javdb.Client` 订阅代理变更后调用 `Reinstall()` 重建当前路由的 transport；JavBus 客户端同理。
+- resty：注入 `http.Transport{Proxy: func(*http.Request) (*url.URL, error) { return m.Resolve(), nil }}`，每个请求实时取值，改代理无需重建客户端。
+- tls-client：代理只能在构造时指定。`javdb.newTransport(host, proxy *url.URL, options)` 接收已解析的代理；`javdb.Client` 订阅变更后调用 `reinstall()` 重建当前路由的 transport（失败时记 `slog.Warn` 并保留旧 transport），自动路由则再触发一次 `Reselect`。
+- `javbus.Probe` / `javdb.Probe` 各自封装在自己的包里，只接收 `*url.URL` 与超时，不依赖 manager。
 - `cmd/miyabi/healthcheck.go` 保持不用代理。
 
 **API**
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/settings/network` | 返回 `enabled` 与 `url`（密码脱敏） |
-| PUT | `/api/settings/network` | 校验 URL，保存并广播；开启时立即触发一次 JavDB 路由探测 |
-| POST | `/api/settings/network/test` | 并发探测 JavDB `/api/v1/startup` 与 JavBus 首页（按当前开关走或不走代理），返回各自耗时与错误 |
+| GET | `/api/settings/network` | 返回 `enabled` 与 `url` |
+| PUT | `/api/settings/network` | 校验、保存并广播；JavDB 客户端收到通知后自行重建 transport，自动路由时重新探测 |
+| POST | `/api/settings/network/test` | 并发探测 JavDB `/api/v1/startup` 与 JavBus 首页；请求体为候选配置，空请求体则用当前配置；返回各自耗时与错误 |
 
-**前端**：设置页新增"网络"分区，复用 `features/settings/shared.tsx` 现有布局原语：一个开关、一个地址输入框、一个测试按钮和两行结果。JavBus 数据开关放在同一分区下方，未开启代理时开启 JavBus 给出提示但不阻止。不新增样式。
+**前端**：设置页"网络代理"分区，复用 `features/settings/shared.tsx` 布局原语：一个开关、一个地址输入框、一个测试按钮，测试结果以单条 toast 汇总 JavDB / JavBus 的耗时或"不可用"，不展示原始错误文本。JavBus 数据开关留待工作线 C 加入同一分区。不新增样式。
 
-### 2.3 步骤
+### 2.3 步骤（完成情况）
 
-1. 新建 `internal/netx`，单测覆盖 Resolve 按目标开关、Update 广播、URL 校验。
-2. `pan.New` 与 `javdb.New` 改为接收 `*netx.ProxyManager`；删除两个 `Options.Proxy` 字段。
-3. `javdb.Client` 增加 `Reinstall()`，订阅变更；`installRoute` 复用。
-4. settings 读写、API 三个端点、测试端点。
-5. 前端分区。
-6. 删除 `config.Proxy` 的直接使用，仅保留为初始种子。
-
-工作量约 3 到 4 天。这一线不依赖结构重构，建议第一个做，因为 JavBus 源和后续所有上游访问都要用它。
+1. ✅ `internal/netx`：管理器 + 客户端工厂，单测覆盖 Resolve 开关、Update 广播与合并、URL 校验、工厂按请求解析代理。
+2. ✅ `pan.New()` 无参数走直连工厂；`javdb.Options.Proxy` 改为 `*netx.ProxyManager`。
+3. ✅ `javdb.Client.reinstall()` 订阅变更重建 transport，单测覆盖。
+4. ✅ settings 读写、三个端点；`ErrInvalidProxy` 映射 400。
+5. ✅ 前端分区，探测结果单条 toast 汇总。
+6. ✅ 删除 `config.Proxy` 与 `MIYABI_PROXY`（README 中的该变量说明待用户自行更新，AGENTS.md 禁止擅改 README）。
 
 ---
 
@@ -460,7 +465,7 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 | 序 | 里程碑 | 内容 | 估计 | 依赖 |
 | --- | --- | --- | --- | --- |
 | M0 | 安全网 | B0：e2e、黄金测试、删审计文档、`.gitattributes` | 3 天 | 无 |
-| M1 | 全局代理 | 工作线 A 全部 | 3 到 4 天 | 无 |
+| M1 | 全局代理 | 工作线 A 全部（已完成 2026-09-20） | 3 到 4 天 | 无 |
 | M2 | 模型与错误 | B1 | 4 天 | M0 |
 | M3 | 任务与会话 | B2、B3 | 1.5 周 | M2 |
 | M4 | 业务包迁移 | B4 到 B8 | 2.5 周 | M3 |
@@ -488,6 +493,7 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 
 - `golang.org/x/net/html` 提升为直接依赖。
 - 代理：一个开关一个地址；开启时 JavDB 与 JavBus 走代理，115 永远直连。JavBus 无镜像，不做端点管理。
+- 代理（2026-09-20）：`MIYABI_PROXY` 彻底删除，不作初始种子；代理密码不脱敏；校验错误中文化并以 `netx.ErrInvalidProxy` 哨兵映射 400。
 - JavBus 数据默认关闭，设置页可开。
 - 磁力按来源加徽章。
 - 追踪改为订阅，支持影片与演员；自动推送默认值在设置页由用户选择；独立路由 `/subscriptions` 进 `FloatingNav`；支持单部、多选、一键入库，批量走任务队列。

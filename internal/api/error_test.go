@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ppxb/miyabi/internal/netx"
 	"github.com/ppxb/miyabi/internal/pan"
 	"github.com/ppxb/miyabi/internal/service"
 )
@@ -41,6 +42,7 @@ func TestErrorMiddlewareMapsDomainErrorsToStatusAndMessage(t *testing.T) {
 		{name: "media directory required", err: service.ErrMediaDirectoryRequired, status: http.StatusBadRequest, message: service.ErrMediaDirectoryRequired.Error()},
 		{name: "magnet not found", err: fmt.Errorf("add: %w", service.ErrMagnetNotFound), status: http.StatusBadRequest, message: "add: " + service.ErrMagnetNotFound.Error()},
 		{name: "invalid progress", err: service.ErrInvalidWatchProgress, status: http.StatusBadRequest, message: service.ErrInvalidWatchProgress.Error()},
+		{name: "invalid proxy", err: fmt.Errorf("%w: 代理地址格式错误", netx.ErrInvalidProxy), status: http.StatusBadRequest, message: "代理配置无效: 代理地址格式错误"},
 		{name: "history source changed", err: service.ErrWatchHistorySourceChanged, status: http.StatusConflict, message: service.ErrWatchHistorySourceChanged.Error()},
 		{name: "cache busy", err: service.ErrCacheBusy, status: http.StatusConflict, message: service.ErrCacheBusy.Error()},
 		{name: "file missing", err: fmt.Errorf("影片文件不存在，请重新扫描: %w", fs.ErrNotExist), status: http.StatusNotFound, message: "影片文件不存在，请重新扫描: file does not exist"},
