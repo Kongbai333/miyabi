@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
+	"github.com/ppxb/miyabi/internal/netx"
 	"golang.org/x/sync/singleflight"
 	"golang.org/x/time/rate"
 )
@@ -38,6 +39,7 @@ type Client struct {
 	routeContext context.Context
 	stopRoutes   context.CancelFunc
 	selectRoute  func(context.Context, routeSelection) (*routeState, error)
+	proxyChanges <-chan struct{}
 }
 
 func New(options Options) (*Client, error) {
@@ -72,6 +74,10 @@ func New(options Options) (*Client, error) {
 		stopRoutes:   stopRoutes,
 	}
 	client.selectRoute = client.selectAndInstall
+	if options.Proxy != nil {
+		client.proxyChanges = options.Proxy.Subscribe()
+		go client.watchProxy()
+	}
 	if options.CachedHost != "" {
 		// Restore the last successful selection without probing. The first GET
 		// uses this transport and retains the normal failure recovery path.
@@ -186,9 +192,37 @@ func (c *Client) routeHosts() []string {
 // Close releases idle API and image connections.
 func (c *Client) Close() {
 	c.stopRoutes()
+	if c.options.Proxy != nil && c.proxyChanges != nil {
+		c.options.Proxy.Unsubscribe(c.proxyChanges)
+	}
 	c.media.GetClient().CloseIdleConnections()
 	if state := c.current.Load(); state != nil {
 		state.transport.closeIdleConnections()
+	}
+}
+
+func (c *Client) watchProxy() {
+	for {
+		select {
+		case <-c.routeContext.Done():
+			return
+		case <-c.proxyChanges:
+			c.selectionMu.Lock()
+			state := c.current.Load()
+			if state != nil {
+				replacement, err := newTransport(state.status.Host, c.options)
+				if err == nil {
+					previous := c.current.Swap(&routeState{transport: replacement, status: state.status})
+					previous.transport.closeIdleConnections()
+				}
+			}
+			c.selectionMu.Unlock()
+			if state != nil && !state.status.Manual {
+				go func() {
+					_, _ = c.Reselect(c.routeContext)
+				}()
+			}
+		}
 	}
 }
 
@@ -341,4 +375,28 @@ func routeFailure(err error) bool {
 		}
 	}
 	return false
+}
+
+// Probe checks connectivity to a bootstrap JavDB route using the given proxy.
+func Probe(ctx context.Context, proxy *url.URL) (time.Duration, error) {
+	options := Options{Timeout: 8 * time.Second}
+	if proxy != nil {
+		mgr, err := netx.NewProxyManager(netx.ProxyConfig{Enabled: true, URL: proxy.String()})
+		if err != nil {
+			return 0, err
+		}
+		options.Proxy = mgr
+	}
+	t, err := newTransport(bootstrapHosts[0], options)
+	if err != nil {
+		return 0, err
+	}
+	defer t.closeIdleConnections()
+
+	started := time.Now()
+	var startup map[string]any
+	if err := t.getJSON(ctx, "/api/v1/startup", nil, defaultLanguage, &startup); err != nil {
+		return 0, err
+	}
+	return time.Since(started), nil
 }

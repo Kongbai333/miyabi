@@ -18,18 +18,22 @@ type Media struct {
 }
 
 func newMediaClient(options Options) *resty.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if options.Proxy != nil {
+		transport.Proxy = func(*http.Request) (*url.URL, error) {
+			return options.Proxy.Resolve(), nil
+		}
+	}
 	client := resty.New().
 		SetTimeout(options.Timeout).
 		SetHeader("User-Agent", userAgent).
-		SetRedirectPolicy(resty.NoRedirectPolicy())
-	if options.Proxy != "" {
-		client.SetProxy(options.Proxy)
-	}
+		SetRedirectPolicy(resty.NoRedirectPolicy()).
+		SetTransport(transport)
 	return client
 }
 
 // FetchMedia downloads and decodes a CDN image independently of API route
-// selection and API rate limiting, using the same configured outbound proxy.
+// selection and API rate limiting.
 func (c *Client) FetchMedia(ctx context.Context, rawURL string) (Media, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {

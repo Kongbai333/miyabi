@@ -28,7 +28,7 @@ func playFixture(t *testing.T) (*PlayService, LibrarySource) {
 		t.Fatal(err)
 	}
 	library.drive = &PanService{
-		client:    pan.New(pan.Options{}),
+		client:    pan.New(),
 		tokens:    pan.Tokens{AccessToken: "fixture-token", ExpiresAt: time.Now().Add(time.Hour)},
 		directory: panLibraryDirectory{AccountID: payload.Source.AccountID, PanLibraryDirectory: payload.Source.Directory},
 	}

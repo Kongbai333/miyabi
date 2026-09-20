@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator'
 import { AppearanceSection } from '@/features/settings/appearance-section'
 import { DataSection } from '@/features/settings/data-section'
 import { JavDBSection } from '@/features/settings/javdb-section'
+import { NetworkSection } from '@/features/settings/network-section'
 import { PanSection } from '@/features/settings/pan-section'
 import { PrivacySection } from '@/features/settings/privacy-section'
 import { TasksSection } from '@/features/settings/tasks-section'
@@ -18,13 +19,15 @@ export const Route = createFileRoute('/settings')({
 function SettingsPage() {
   return (
     <AppPage showBackTop={false}>
-      <PageHeader title="设置" description="管理 115、JavDB 和本地应用选项" />
+      <PageHeader title="设置" description="管理 115、JavDB、网络代理和本地应用选项" />
 
       <Card>
         <CardContent className="space-y-8">
           <AppearanceSection />
           <Separator />
           <PrivacySection />
+          <Separator />
+          <NetworkSection />
           <Separator />
           <JavDBSection />
           <Separator />

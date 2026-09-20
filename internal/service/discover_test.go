@@ -21,7 +21,7 @@ func TestNewDiscoverServicePersistsDeviceWithoutSelectingRoute(t *testing.T) {
 	}
 	defer store.Close()
 
-	first, err := NewDiscoverService(t.Context(), store.Client, javdb.Options{})
+	first, err := NewDiscoverService(t.Context(), store.Client, javdb.Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestNewDiscoverServicePersistsDeviceWithoutSelectingRoute(t *testing.T) {
 		t.Fatalf("device UUID = %q: %v", firstDevice, err)
 	}
 
-	second, err := NewDiscoverService(t.Context(), store.Client, javdb.Options{})
+	second, err := NewDiscoverService(t.Context(), store.Client, javdb.Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestNewDiscoverServiceRestoresPersistedRoute(t *testing.T) {
 	if err := saveSetting(t.Context(), store.Client, javdbRouteSetting, saved); err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewDiscoverService(t.Context(), store.Client, javdb.Options{})
+	service, err := NewDiscoverService(t.Context(), store.Client, javdb.Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	service, err := NewDiscoverService(t.Context(), store.Client, javdb.Options{})
+	service, err := NewDiscoverService(t.Context(), store.Client, javdb.Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

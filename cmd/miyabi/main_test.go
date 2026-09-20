@@ -10,7 +10,7 @@ func TestRunRejectsUnsupportedArgumentsBeforeLoadingConfig(t *testing.T) {
 	t.Setenv("MIYABI_LOG_LEVEL", "invalid-test-level")
 	for _, args := range [][]string{
 		{"-config", "config.toml"}, {"-listen", ":9090"}, {"-data-dir", "./other"},
-		{"-log-level", "debug"}, {"-proxy", "http://127.0.0.1:7890"},
+		{"-log-level", "debug"},
 		{"unknown"}, {"healthcheck", "-listen", ":9090"}, {"healthcheck", "extra"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

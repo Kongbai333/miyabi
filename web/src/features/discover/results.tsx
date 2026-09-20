@@ -25,7 +25,13 @@ export function DiscoverResults({
   onRetry: () => void
 }) {
   if (error) {
-    return <ErrorState message="数据加载失败" onRetry={onRetry} retrying={fetching} />
+    return (
+      <ErrorState
+        message="数据加载失败，请检查网络或代理设置"
+        onRetry={onRetry}
+        retrying={fetching}
+      />
+    )
   }
   if (loading || !movies) return <MovieGridSkeleton count={DISCOVER_PAGE_SIZE} />
   return (

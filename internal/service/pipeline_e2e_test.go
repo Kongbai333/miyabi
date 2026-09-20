@@ -301,7 +301,7 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	discover, err := NewDiscoverService(ctx, store.Client, javdb.Options{})
+	discover, err := NewDiscoverService(ctx, store.Client, javdb.Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

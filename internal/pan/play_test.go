@@ -22,7 +22,7 @@ func TestPlayURLDecodesOfficialResponses(t *testing.T) {
 		{name: "api rejection", body: `{"state":false,"code":500001,"message":"fixture failure"}`, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			client := New(Options{})
+			client := New()
 			defer client.Close()
 			calls := 0
 			client.http.SetTransport(offlineRoundTrip(func(request *http.Request) (*http.Response, error) {
@@ -60,7 +60,7 @@ func TestDownloadURLDecodesMetadataSources(t *testing.T) {
 		{name: "empty download URL", body: `{"state":true,"code":0,"data":{"42":{"url":{"url":""}}}}`, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			client := New(Options{})
+			client := New()
 			defer client.Close()
 			client.http.SetTransport(offlineRoundTrip(func(request *http.Request) (*http.Response, error) {
 				if err := request.ParseForm(); err != nil {
@@ -104,7 +104,7 @@ func (body *observedMediaBody) Close() error {
 func TestOpenMediaStreamsRangeAndHeadWithoutCredentials(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
-			client := New(Options{})
+			client := New()
 			defer client.Close()
 			body := &observedMediaBody{Reader: strings.NewReader("fixture video")}
 			client.media.SetTransport(offlineRoundTrip(func(request *http.Request) (*http.Response, error) {
@@ -137,7 +137,7 @@ func TestOpenMediaStreamsRangeAndHeadWithoutCredentials(t *testing.T) {
 }
 
 func TestMediaRequestErrorRedactsURLAndPreservesCancellation(t *testing.T) {
-	client := New(Options{})
+	client := New()
 	defer client.Close()
 	client.media.SetTransport(offlineRoundTrip(func(*http.Request) (*http.Response, error) {
 		return nil, context.Canceled

@@ -60,7 +60,7 @@ func TestDirectoryMountQueuesOnceAndDoesNotInterruptTheSameMount(t *testing.T) {
 		t.Fatal("changing directory did not queue exactly one new scan")
 	}
 	// Startup restores the durable mount and queued work without adding scans.
-	restarted, err := NewPanService(ctx, library.database, library.tasks, pan.Options{})
+	restarted, err := NewPanService(ctx, library.database, library.tasks)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,6 @@ type Config struct {
 	Listen         string
 	DataDir        string
 	LogLevel       string
-	Proxy          string
 	AccessPassword string
 }
 
@@ -20,7 +19,6 @@ func Load() (Config, error) {
 		Listen:         envOrDefault("MIYABI_LISTEN", ":8080"),
 		DataDir:        envOrDefault("MIYABI_DATA_DIR", "./data"),
 		LogLevel:       envOrDefault("MIYABI_LOG_LEVEL", "info"),
-		Proxy:          os.Getenv("MIYABI_PROXY"),
 		AccessPassword: os.Getenv("MIYABI_ACCESS_PASSWORD"),
 	}
 	if err := cfg.validate(); err != nil {

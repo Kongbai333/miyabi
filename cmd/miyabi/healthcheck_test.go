@@ -93,7 +93,6 @@ func TestHealthcheckModeUsesEnvironmentWithoutStartingServices(t *testing.T) {
 	t.Setenv("MIYABI_LISTEN", server.Listener.Addr().String())
 	t.Setenv("MIYABI_DATA_DIR", dataDir)
 	t.Setenv("MIYABI_LOG_LEVEL", "info")
-	t.Setenv("MIYABI_PROXY", "http://127.0.0.1:1")
 	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
 	if err := run([]string{"healthcheck"}); err != nil {
 		t.Fatal(err)

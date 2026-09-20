@@ -35,7 +35,7 @@ func TestAddOfflineChecksTheIndividualSubmissionResult(t *testing.T) {
 		{name: "global rejection", body: `{"state":false,"code":500001,"message":"fixture rejection"}`, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			client := New(Options{})
+			client := New()
 			defer client.Close()
 			calls := 0
 			client.http.SetTransport(offlineRoundTrip(func(request *http.Request) (*http.Response, error) {
@@ -74,7 +74,7 @@ func TestAddOfflineChecksTheIndividualSubmissionResult(t *testing.T) {
 func TestOfflineTasksDecodesMixedProgress(t *testing.T) {
 	for _, progress := range []string{"42", "42.75", `"42.75"`} {
 		t.Run(progress, func(t *testing.T) {
-			client := New(Options{})
+			client := New()
 			defer client.Close()
 			client.http.SetTransport(offlineRoundTrip(func(request *http.Request) (*http.Response, error) {
 				if request.Method != http.MethodGet || request.URL.Path != "/open/offline/get_task_list" || request.URL.Query().Get("page") != "2" {

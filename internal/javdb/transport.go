@@ -48,8 +48,10 @@ func newTransport(host string, options Options) (*transport, error) {
 		tlsclient.WithNotFollowRedirects(),
 		tlsclient.WithCookieJar(tlsclient.NewCookieJar()),
 	}
-	if options.Proxy != "" {
-		clientOptions = append(clientOptions, tlsclient.WithProxyUrl(options.Proxy))
+	if options.Proxy != nil {
+		if proxy := options.Proxy.Resolve(); proxy != nil {
+			clientOptions = append(clientOptions, tlsclient.WithProxyUrl(proxy.String()))
+		}
 	}
 	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), clientOptions...)
 	if err != nil {

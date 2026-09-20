@@ -10,6 +10,7 @@ import (
 
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/javdb"
+	"github.com/ppxb/miyabi/internal/netx"
 )
 
 const (
@@ -107,6 +108,7 @@ func NewDiscoverService(
 	ctx context.Context,
 	database *ent.Client,
 	options javdb.Options,
+	proxy *netx.ProxyManager,
 ) (*DiscoverService, error) {
 	deviceUUID, found, err := loadSetting[string](ctx, database, javdbDeviceSetting)
 	if err != nil {
@@ -135,6 +137,7 @@ func NewDiscoverService(
 		options.ManualRoute = route.Manual
 	}
 	options.DeviceUUID = deviceUUID
+	options.Proxy = proxy
 	client, err := javdb.New(options)
 	if err != nil {
 		return nil, err

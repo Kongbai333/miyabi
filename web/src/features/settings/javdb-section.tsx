@@ -54,7 +54,7 @@ export function JavDBSection() {
 
   return (
     <SettingsSection icon={<NetworkIcon className="size-4" />} title="JavDB">
-      <SettingRow title="接口线路" description="自动优选或手动选择线路，连接失败时自动重选。">
+      <SettingRow title="接口线路" description="自动优选或手动选择线路，连接失败时自动重选">
         <div className="flex w-full items-center gap-2 sm:w-auto">
           <Select
             value={value}

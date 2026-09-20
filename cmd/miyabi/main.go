@@ -19,7 +19,6 @@ import (
 	mediaimage "github.com/ppxb/miyabi/internal/image"
 	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/logging"
-	"github.com/ppxb/miyabi/internal/pan"
 	"github.com/ppxb/miyabi/internal/service"
 	"github.com/ppxb/miyabi/internal/worker"
 )
@@ -55,17 +54,17 @@ func run(args []string) error {
 		return err
 	}
 	defer store.Close()
-	discover, err := service.NewDiscoverService(context.Background(), store.Client, javdb.Options{
-		Proxy: cfg.Proxy,
-	})
+	network, err := service.NewNetworkService(context.Background(), store.Client)
+	if err != nil {
+		return fmt.Errorf("initialize network service: %w", err)
+	}
+	discover, err := service.NewDiscoverService(context.Background(), store.Client, javdb.Options{}, network.ProxyManager())
 	if err != nil {
 		return fmt.Errorf("initialize discovery service: %w", err)
 	}
 	defer discover.Close()
 	tasks := service.NewTaskService(store.Client)
-	drive, err := service.NewPanService(context.Background(), store.Client, tasks, pan.Options{
-		Proxy: cfg.Proxy,
-	})
+	drive, err := service.NewPanService(context.Background(), store.Client, tasks)
 	if err != nil {
 		return fmt.Errorf("initialize pan service: %w", err)
 	}
@@ -104,6 +103,7 @@ func run(args []string) error {
 		Tasks:    tasks,
 		Artwork:  scrape,
 		Data:     data,
+		Network:  network,
 		Frontend: miyabi.Frontend(),
 	})
 	server := &http.Server{

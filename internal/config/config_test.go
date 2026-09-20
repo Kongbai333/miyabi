@@ -8,7 +8,7 @@ import (
 
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"MIYABI_LISTEN", "MIYABI_DATA_DIR", "MIYABI_LOG_LEVEL", "MIYABI_PROXY", "MIYABI_ACCESS_PASSWORD"} {
+	for _, key := range []string{"MIYABI_LISTEN", "MIYABI_DATA_DIR", "MIYABI_LOG_LEVEL", "MIYABI_ACCESS_PASSWORD"} {
 		// Restore the developer's environment when the test finishes.
 		t.Setenv(key, "")
 		if err := os.Unsetenv(key); err != nil {
@@ -28,15 +28,14 @@ func TestLoadDefaultsAndEnvironment(t *testing.T) {
 			name: "environment overrides defaults and preserves password whitespace",
 			env: map[string]string{
 				"MIYABI_LISTEN": " 127.0.0.1:9090 ", "MIYABI_DATA_DIR": " ./custom-data ",
-				"MIYABI_LOG_LEVEL": " DEBUG ", "MIYABI_PROXY": "http://127.0.0.1:7890",
-				"MIYABI_ACCESS_PASSWORD": " password with spaces ",
+				"MIYABI_LOG_LEVEL": " DEBUG ", "MIYABI_ACCESS_PASSWORD": " password with spaces ",
 			},
 			want: Config{Listen: "127.0.0.1:9090", DataDir: "./custom-data", LogLevel: "debug",
-				Proxy: "http://127.0.0.1:7890", AccessPassword: " password with spaces "},
+				AccessPassword: " password with spaces "},
 		},
 		{
 			name: "empty optional values disable proxy and access gate",
-			env:  map[string]string{"MIYABI_PROXY": "", "MIYABI_ACCESS_PASSWORD": ""},
+			env:  map[string]string{"MIYABI_ACCESS_PASSWORD": ""},
 			want: Config{Listen: ":8080", DataDir: "./data", LogLevel: "info"},
 		},
 	} {

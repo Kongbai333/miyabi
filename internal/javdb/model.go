@@ -3,6 +3,8 @@ package javdb
 import (
 	"fmt"
 	"time"
+
+	"github.com/ppxb/miyabi/internal/netx"
 )
 
 const (
@@ -21,7 +23,7 @@ type Options struct {
 	CachedLatency     time.Duration
 	ManualRoute       bool
 	DeviceUUID        string
-	Proxy             string
+	Proxy             *netx.ProxyManager
 	Timeout           time.Duration
 	RequestsPerSecond float64
 	Burst             int

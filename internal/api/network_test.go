@@ -1,0 +1,87 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/ppxb/miyabi/internal/netx"
+	"github.com/ppxb/miyabi/internal/service"
+)
+
+type networkStub struct {
+	config     netx.ProxyConfig
+	testResult service.NetworkTestResponse
+}
+
+func (stub *networkStub) Network(context.Context) (netx.ProxyConfig, error) {
+	return stub.config, nil
+}
+
+func (stub *networkStub) UpdateNetwork(_ context.Context, config netx.ProxyConfig) error {
+	stub.config = config
+	return nil
+}
+
+func (stub *networkStub) TestNetwork(_ context.Context, _ netx.ProxyConfig) (service.NetworkTestResponse, error) {
+	return stub.testResult, nil
+}
+
+func TestNetworkEndpointsReadWriteAndRedactPassword(t *testing.T) {
+	stub := &networkStub{config: netx.ProxyConfig{Enabled: true, URL: "http://user:secret@127.0.0.1:7890"}}
+	router := NewRouter(Dependencies{Network: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+
+	get := httptest.NewRecorder()
+	router.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/settings/network", nil))
+	if get.Code != http.StatusOK || get.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("GET status=%d headers=%v body=%s", get.Code, get.Header(), get.Body)
+	}
+	var response netx.ProxyConfig
+	if err := json.Unmarshal(get.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.URL != "http://user:******@127.0.0.1:7890" {
+		t.Fatalf("GET exposed or lost proxy password: %q", response.URL)
+	}
+
+	put := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings/network", strings.NewReader(`{"enabled":false,"url":"https://127.0.0.1:7891"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(put, request)
+	if put.Code != http.StatusOK || stub.config != (netx.ProxyConfig{Enabled: false, URL: "https://127.0.0.1:7891"}) {
+		t.Fatalf("PUT status=%d config=%+v body=%s", put.Code, stub.config, put.Body)
+	}
+}
+
+func TestNetworkTestEndpoint(t *testing.T) {
+	stub := &networkStub{
+		config: netx.ProxyConfig{Enabled: true, URL: "http://127.0.0.1:7890"},
+		testResult: service.NetworkTestResponse{
+			JavDB:  service.NetworkProbeResult{Available: true, LatencyMS: 120},
+			JavBus: service.NetworkProbeResult{Available: false, Error: "timeout"},
+		},
+	}
+	router := NewRouter(Dependencies{Network: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+
+	post := httptest.NewRecorder()
+	router.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/settings/network/test", nil))
+	if post.Code != http.StatusOK {
+		t.Fatalf("POST status=%d body=%s", post.Code, post.Body)
+	}
+
+	var result service.NetworkTestResponse
+	if err := json.Unmarshal(post.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.JavDB.Available || result.JavDB.LatencyMS != 120 {
+		t.Fatalf("unexpected JavDB result: %+v", result.JavDB)
+	}
+	if result.JavBus.Available || result.JavBus.Error != "timeout" {
+		t.Fatalf("unexpected JavBus result: %+v", result.JavBus)
+	}
+}

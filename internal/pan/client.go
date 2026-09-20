@@ -16,25 +16,17 @@ const (
 	apiURL      = "https://proapi.115.com"
 )
 
-type Options struct {
-	Proxy string
-}
-
 type Client struct {
 	http    *resty.Client
 	media   *resty.Client
 	limiter *rate.Limiter
 }
 
-func New(options Options) *Client {
+func New() *Client {
 	client := resty.New().SetTimeout(35 * time.Second)
 	// Video transfers have no total timeout; only waiting for response headers is bounded.
 	media := resty.New()
 	media.GetClient().Transport.(*http.Transport).ResponseHeaderTimeout = 35 * time.Second
-	if options.Proxy != "" {
-		client.SetProxy(options.Proxy)
-		media.SetProxy(options.Proxy)
-	}
 	return &Client{
 		http:    client,
 		media:   media,

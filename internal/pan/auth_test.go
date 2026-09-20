@@ -23,7 +23,7 @@ func TestLoginStatusWaitsForAnExplicitAuthorization(t *testing.T) {
 		{`{"state":0,"code":99}`, "", true},
 		{`{"state":1,"code":0,"data":{"status":99}}`, LoginWaiting, false},
 	} {
-		client := New(Options{})
+		client := New()
 		client.http.SetTransport(offlineRoundTrip(func(request *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK,
 				Header: http.Header{"Content-Type": {"application/json"}},

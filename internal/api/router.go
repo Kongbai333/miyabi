@@ -28,6 +28,7 @@ type Dependencies struct {
 	Tasks    TaskManager
 	Artwork  ArtworkReader
 	Data     DataManager
+	Network  NetworkManager
 	Frontend fs.FS
 }
 
@@ -54,6 +55,9 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	})
 	settingsAPI.GET("/system", dataInfoHandler(deps.Data))
 	settingsAPI.DELETE("/cache", dataClearCacheHandler(deps.Data))
+	settingsAPI.GET("/network", networkHandler(deps.Network))
+	settingsAPI.PUT("/network", networkUpdateHandler(deps.Network))
+	settingsAPI.POST("/network/test", networkTestHandler(deps.Network))
 	api.GET("/library/movies", libraryMoviesHandler(deps.Library))
 	api.PUT("/library/movies/:id/watched", libraryWatchedHandler(deps.Library))
 	api.GET("/library/history", libraryHistoryHandler(deps.Library))
