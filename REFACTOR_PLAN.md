@@ -235,6 +235,14 @@ func (e *Error) Error() string; Unwrap() error; PublicMessage() string
 
 - `library_scan.go`（649 行）拆为：`scan/walker.go`（BFS、分页、`scanPage`）、`scan/identity.go`（`identifyScanVideos`、单 NFO 启发式）、`scan/persist.go`（`processScanPage`、`savePage`）、`scan/reconcile.go`。`Scan()` 从 180 行压到调度骨架。
 - `scrape.go`（435 行）拆为：`scrape/scrape.go`（任务处理器）、`scrape/nfo_source.go`（`findNFO / directoryNFO / readNFO`，同时吸收 `library_scan.go:236-263` 的重复 NFO 读取）、`scrape/mapping.go`（`movieNFO / detailNFO / saveMovieMetadata` 三份字段映射合并为一份 `domain.Movie ↔ nfo.Movie ↔ ent` 的双向映射）。
+- **番号识别与 NFO 双向容差校验策略（消除硬匹配字典）**：
+  - 针对分销商数字前缀（如 `4k688.com@200GANA-3458.mp4` vs `GANA-3458.nfo`）与无码厂商纯日期番号（如 `Carib-060326-001.mp4` vs `060326-001.nfo`）导致刮削被拦截的问题，**杜绝在代码中维护 `prefixAliases` 等静态硬编码字典**。
+  - **扫描协同**：在独占单片目录下，已有 NFO 具有更高元数据权威性。当视频名提取出的候选番号与同目录下唯一 NFO 满足亲缘容差时，以 NFO 内标准番号入库建档，避免脏前缀进入数据库。
+  - **分级亲缘校验算法（`codeid.IsEquivalent` / 容差比对）**：
+    1. 规范化全等：去除标点后大小写不敏感全等；
+    2. 核心序列与前缀容差：数字核心序列（如 `3458`、`060326-001`）完全一致的前提下，若一方前缀是另一方前缀的后缀/子集（如 `200GANA` 包含 `GANA`，或厂牌 `CARIB` 与纯日期），判定为同一影片，信任 NFO 标准番号；
+    3. 安全拦截：核心数字不一致或前缀毫无关联时严格拦截，防止串片。
+  - **模块沉淀**：由 `scan/identity.go` 与 `scrape/nfo_source.go` 共享该纯函数逻辑，入库与刮削双向统一。
 - `cover.go`、`metadata_snapshot.go` 迁入 `scrape/`。
 - `watch_history.go`、`library.go`、`scan_observations.go` 迁入 `library/`。
 - `library_source.go:13` 与 `pan_directory.go:53-61` 的路径拼接合并为 `drive.DirectoryPath`。
@@ -499,3 +507,4 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 - 追踪改为订阅，支持影片与演员；自动推送默认值在设置页由用户选择；独立路由 `/subscriptions` 进 `FloatingNav`；支持单部、多选、一键入库，批量走任务队列。
 - 审计文档已删除（提交 `badcfa5`）。
 - `config.Runtime` 的环境变量命名先内部集中，对外开放的在实现时逐个写进 README。
+- 番号识别与刮削校验（2026-09-20）：针对 `200GANA-3458` 与 `CARIB` 等前缀不一致问题，不引入静态硬匹配字典；在 M4 (B4) 落地“NFO 与文件名双向容差亲缘校验”策略，核心数字一致且前缀包含时自动放行并收敛为 NFO 标准番号。
