@@ -59,6 +59,10 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize network service: %w", err)
 	}
+	magnet, err := service.NewMCPService(context.Background(), store.Client)
+	if err != nil {
+		return fmt.Errorf("initialize magnet service: %w", err)
+	}
 	discover, err := service.NewDiscoverService(context.Background(), store.Client, javdb.Options{}, network.ProxyManager())
 	if err != nil {
 		return fmt.Errorf("initialize discovery service: %w", err)
@@ -108,6 +112,7 @@ func run(args []string) error {
 		Artwork:  scrape,
 		Data:     data,
 		Network:  network,
+		Magnet:   magnet,
 		Frontend: miyabi.Frontend(),
 	})
 	server := &http.Server{

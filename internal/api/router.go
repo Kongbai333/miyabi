@@ -29,6 +29,7 @@ type Dependencies struct {
 	Artwork  ArtworkReader
 	Data     DataManager
 	Network  NetworkManager
+	Magnet   MagnetManager
 	Frontend fs.FS
 }
 
@@ -118,6 +119,26 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	panAPI.GET("/files", panFilesHandler(deps.Pan))
 	panAPI.PUT("/directory", panSelectDirectoryHandler(deps.Pan))
 	panAPI.DELETE("/directory", panClearDirectoryHandler(deps.Pan))
+	// The settings carry the magnet server token, so nothing here is cacheable.
+	magnetAPI := api.Group("/magnet", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.Next()
+	})
+	magnetAPI.GET("/settings", magnetSettingsHandler(deps.Magnet))
+	magnetAPI.PUT("/settings", magnetSettingsUpdateHandler(deps.Magnet))
+	magnetAPI.POST("/test", magnetTestHandler(deps.Magnet))
+	magnetAPI.POST("/search", magnetSearchHandler(deps.Magnet))
+	magnetAPI.POST("/preview", magnetPreviewHandler(deps.Magnet))
+	magnetAPI.POST("/files", magnetFilesHandler(deps.Magnet))
+	magnetAPI.GET("/collections", magnetCollectionsHandler(deps.Magnet))
+	magnetAPI.POST("/collections", magnetCollectionCreateHandler(deps.Magnet))
+	magnetAPI.GET("/collections/:key", magnetCollectionHandler(deps.Magnet))
+	magnetAPI.PUT("/collections/:key", magnetCollectionUpdateHandler(deps.Magnet))
+	magnetAPI.DELETE("/collections/:key", magnetCollectionDeleteHandler(deps.Magnet))
+	magnetAPI.POST("/collections/:key/share", magnetShareEnableHandler(deps.Magnet))
+	magnetAPI.DELETE("/collections/:key/share", magnetShareDisableHandler(deps.Magnet))
+	magnetAPI.GET("/shares/:code", magnetShareDetailHandler(deps.Magnet))
+	magnetAPI.POST("/shares/import", magnetShareImportHandler(deps.Magnet))
 
 	if deps.Frontend != nil {
 		installFrontend(router, deps.Frontend)
