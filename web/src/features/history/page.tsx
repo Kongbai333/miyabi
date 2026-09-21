@@ -194,6 +194,7 @@ function HistoryContent({
       {pageCount > 1 ? (
         <ListPagination
           page={page}
+          totalPages={pageCount}
           hasMore={page < pageCount}
           disabled={history.isFetching || remove.isPending}
           onPageChange={onPageChange}

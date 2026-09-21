@@ -96,12 +96,6 @@ export function LibraryPage({
         />
       ) : (
         <>
-          {source ? (
-            <p className="text-sm">
-              共 {library.data.total} 部影片 · 每页 {LIBRARY_PAGE_SIZE} 部
-            </p>
-          ) : null}
-
           {library.data.movies.length > 0 ? (
             <MovieGridLayout>
               {library.data.movies.map(movie => (
