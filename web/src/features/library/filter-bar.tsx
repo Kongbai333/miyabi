@@ -24,6 +24,9 @@ const SORT_OPTIONS: Array<{ id: LibrarySort; name: string }> = [
   { id: 'watched', name: '最近观看' }
 ]
 
+// Radix refuses an empty item value, so "no choice" travels as a sentinel the
+// way the discover bar's CommonFilterSelect already does it.
+const ALL_VALUE = 'all'
 const toIDs = (value: string) => (value === '' ? [] : [Number(value)])
 const toNames = (value: string) => (value === '' ? [] : [value])
 const firstValue = (values: readonly (string | number)[]) =>
@@ -63,24 +66,28 @@ export function LibraryFilterBar({
         <>
           <FilterSelect
             label="标签"
+            allLabel="全部标签"
             value={firstValue(filter.tagIds)}
             options={options?.tags ?? []}
             onChange={value => onChange({ ...filter, tagIds: toIDs(value) })}
           />
           <FilterSelect
             label="演员"
+            allLabel="全部演员"
             value={firstValue(filter.actorIds)}
             options={options?.actors ?? []}
             onChange={value => onChange({ ...filter, actorIds: toNames(value) })}
           />
           <FilterSelect
             label="年份"
+            allLabel="全部年份"
             value={firstValue(filter.years)}
             options={options?.years ?? []}
             onChange={value => onChange({ ...filter, years: toIDs(value) })}
           />
           <FilterSelect
             label="观看状态"
+            allLabel="全部观看状态"
             value={filter.watched}
             options={WATCHED_OPTIONS}
             onChange={value => onChange({ ...filter, watched: value as LibraryFilter['watched'] })}
@@ -114,20 +121,28 @@ function FilterSelect({
   label,
   value,
   options,
+  allLabel,
   onChange
 }: {
   label: string
   value: string
   options: readonly FilterChoice[]
+  // The dimension's "no choice" entry. The sort omits it: an order always
+  // applies, so it has nothing to fall back to.
+  allLabel?: string
   onChange: (value: string) => void
 }) {
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select
+      value={value === '' ? ALL_VALUE : value}
+      onValueChange={next => onChange(next === ALL_VALUE ? '' : next)}
+    >
       <SelectTrigger className="w-full sm:w-44" aria-label={label}>
-        <SelectValue />
+        <SelectValue placeholder={allLabel ?? label} />
       </SelectTrigger>
       <SelectContent position="popper" align="start">
         <SelectGroup>
+          {allLabel ? <SelectItem value={ALL_VALUE}>{allLabel}</SelectItem> : null}
           {options.map(option => (
             <SelectItem key={option.id} value={option.id}>
               {option.name}
