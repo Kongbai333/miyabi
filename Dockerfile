@@ -61,6 +61,6 @@ ARG REVISION=unknown
 
 LABEL org.opencontainers.image.title="Miyabi" \
       org.opencontainers.image.description="JavDB media library with 115 cloud playback" \
-      org.opencontainers.image.source="https://github.com/ppxb/miyabi" \
+      org.opencontainers.image.source="https://github.com/Kongbai333/miyabi" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
