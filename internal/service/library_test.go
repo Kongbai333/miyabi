@@ -51,14 +51,17 @@ func TestLibraryPageLoadsCardMetadataWithScopedCounts(t *testing.T) {
 			return next.Query(ctx, query)
 		})
 	}))
-	page, err := library.Movies(ctx, 1, 20)
+	page, err := library.Movies(ctx, 1, 20, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if page.Source == nil || *page.Source != payload.Source || page.Total != 2 || page.HasMore || len(page.Movies) != 2 {
 		t.Fatalf("library statistics escaped the mounted source: %#v", page)
 	}
-	wantQueries := map[string]int{"*ent.SettingQuery": 1, "*ent.FileQuery": 1, "*ent.MovieQuery": 1, "*ent.TagQuery": 1, "*ent.ActorQuery": 1}
+	// Counting now runs against the movie scope and the favorites lookup adds one query.
+	wantQueries := map[string]int{
+		"*ent.SettingQuery": 1, "*ent.MovieQuery": 2, "*ent.TagQuery": 1, "*ent.ActorQuery": 1, "*ent.FavoriteQuery": 1,
+	}
 	if !reflect.DeepEqual(queries, wantQueries) {
 		t.Fatalf("library cards made redundant queries: %#v", queries)
 	}
@@ -100,15 +103,15 @@ func TestLibraryPageLoadsCardMetadataWithScopedCounts(t *testing.T) {
 			}
 		}
 	}
-	first, err := library.Movies(ctx, 1, 1)
+	first, err := library.Movies(ctx, 1, 1, 0)
 	if err != nil || len(first.Movies) != 1 || !first.HasMore {
 		t.Fatalf("first page: %#v, %v", first, err)
 	}
-	second, err := library.Movies(ctx, 2, 1)
+	second, err := library.Movies(ctx, 2, 1, 0)
 	if err != nil || len(second.Movies) != 1 || second.HasMore || first.Movies[0].ID == second.Movies[0].ID {
 		t.Fatalf("second page: %#v, %v", second, err)
 	}
-	if beyond, err := library.Movies(ctx, 3, 1); err != nil || beyond.Movies == nil || len(beyond.Movies) != 0 || beyond.HasMore {
+	if beyond, err := library.Movies(ctx, 3, 1, 0); err != nil || beyond.Movies == nil || len(beyond.Movies) != 0 || beyond.HasMore {
 		t.Fatalf("out-of-range page: %#v, %v", beyond, err)
 	}
 }
@@ -127,7 +130,7 @@ func TestLibraryPagesContainTwentyDistinctMoviesAndTheRemainder(t *testing.T) {
 	seen := make(map[int]bool)
 	previousID := 0
 	for pageNumber, count := range []int{20, 1, 0} {
-		page, err := library.Movies(ctx, pageNumber+1, 20)
+		page, err := library.Movies(ctx, pageNumber+1, 20, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -153,7 +156,7 @@ func TestLibraryPageKeepsEmptyAndUnmatchedSourcesUsable(t *testing.T) {
 			library.database.File.Create().SetFileID("unmatched").SetName("recording.mp4").SetSize(1024).
 				SetAccountID("100").SetRootID("10").ExecX(t.Context())
 		}
-		page, err := library.Movies(t.Context(), 1, 24)
+		page, err := library.Movies(t.Context(), 1, 24, 0)
 		if err != nil || page.Total != 0 || page.Movies == nil || len(page.Movies) != 0 || page.HasMore {
 			t.Fatalf("empty/unmatched source: %#v, %v", page, err)
 		}

@@ -35,7 +35,7 @@ func TestMarkWatchedIsLocalAndKeepsMovieStateIdempotent(t *testing.T) {
 	if !updated.Watched || after.Library != before.Library+1 || after.Offline != before.Offline {
 		t.Fatalf("watch change was not persisted and published once: movie=%+v before=%+v after=%+v", updated, before, after)
 	}
-	page, err := library.Movies(ctx, 1, 24)
+	page, err := library.Movies(ctx, 1, 24, 0)
 	if err != nil || len(page.Movies) != 1 || !page.Movies[0].Watched {
 		t.Fatalf("library did not return the saved watch state: %+v, %v", page, err)
 	}

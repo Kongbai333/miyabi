@@ -114,7 +114,7 @@ func goldenSource() service.LibrarySource {
 
 func goldenTime() time.Time { return time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC) }
 
-func (goldenLibrary) Movies(context.Context, int, int) (service.LibraryPage, error) {
+func (goldenLibrary) Movies(context.Context, int, int, int) (service.LibraryPage, error) {
 	source := goldenSource()
 	cover, poster, javdbID := "/api/library/artwork/aa.jpg", "/api/library/artwork/bb.jpg", "movie-exact"
 	return service.LibraryPage{Source: &source, Total: 2, Page: 1, HasMore: false, Movies: []service.LibraryMovie{
@@ -123,8 +123,8 @@ func (goldenLibrary) Movies(context.Context, int, int) (service.LibraryPage, err
 			Director: &service.LibraryEntity{ID: "director-1", Name: "Director"}, Maker: &service.LibraryEntity{ID: "maker-1", Name: "Maker"},
 			Series: &service.LibraryEntity{ID: "series-1", Name: "Series"},
 			Actors: []service.LibraryEntity{{ID: "actor-1", Name: "Actor"}}, Tags: []service.LibraryTag{{ID: 3, JavDBID: "tag-1", Name: "Tag"}},
-			ScrapeStatus: movie.ScrapeStatusDone, Watched: true},
-		{ID: 8, Code: "ZZZ-999", Actors: []service.LibraryEntity{}, Tags: []service.LibraryTag{}, ScrapeStatus: movie.ScrapeStatusFailed},
+			ScrapeStatus: movie.ScrapeStatusDone, Watched: true, FavoriteGroupIDs: []int{4}},
+		{ID: 8, Code: "ZZZ-999", Actors: []service.LibraryEntity{}, Tags: []service.LibraryTag{}, ScrapeStatus: movie.ScrapeStatusFailed, FavoriteGroupIDs: []int{}},
 	}}, nil
 }
 

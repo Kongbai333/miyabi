@@ -15,15 +15,20 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { LibraryMovieCard } from '@/features/library/movie-card'
 import { useTaskConnection } from '@/features/tasks/task-events'
+import { LibraryGroupTabs } from './group-tabs'
 
 export function LibraryPage({
   page,
-  onPageChange
+  group,
+  onPageChange,
+  onGroupChange
 }: {
   page: number
+  group: number
   onPageChange: (page: number) => void
+  onGroupChange: (group: number) => void
 }) {
-  const library = useLibraryMovies(page)
+  const library = useLibraryMovies(page, group)
   const tasks = useTasks()
   const connection = useTaskConnection()
   const startScan = useStartLibraryScan()
@@ -76,6 +81,8 @@ export function LibraryPage({
         ) : null}
       </PageHeader>
 
+      <LibraryGroupTabs group={group} onGroupChange={onGroupChange} />
+
       {tasks.isError ? (
         <InlineError
           onRetry={connection.reconnect}
@@ -98,7 +105,10 @@ export function LibraryPage({
         <>
           {source ? (
             <p className="text-sm">
-              共 {library.data.total} 部影片 · 每页 {LIBRARY_PAGE_SIZE} 部
+              {group > 0
+                ? `本分组 ${library.data.total} 部影片`
+                : `共 ${library.data.total} 部影片`}{' '}
+              · 每页 {LIBRARY_PAGE_SIZE} 部
             </p>
           ) : null}
 
@@ -116,7 +126,9 @@ export function LibraryPage({
                   ? '登录 115 并挂载媒体目录后，将自动扫描入库'
                   : scanning
                     ? '正在扫描，识别到的影片会陆续显示'
-                    : '未识别到影片'
+                    : group > 0
+                      ? '这个分组还没有收藏的影片'
+                      : '未识别到影片'
               }
             />
           )}

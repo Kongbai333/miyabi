@@ -9,7 +9,12 @@ import (
 )
 
 type LibraryManager interface {
-	Movies(context.Context, int, int) (service.LibraryPage, error)
+	Movies(context.Context, int, int, int) (service.LibraryPage, error)
+	SetFavorite(context.Context, int, []int) error
+	FavoriteGroups(context.Context) ([]service.FavoriteGroupItem, error)
+	CreateFavoriteGroup(context.Context, string) (service.FavoriteGroupItem, error)
+	RenameFavoriteGroup(context.Context, int, string) (service.FavoriteGroupItem, error)
+	DeleteFavoriteGroup(context.Context, int) error
 	MarkWatched(context.Context, int, service.WatchHistoryScope) (service.WatchSession, error)
 	WatchHistory(context.Context, int) (service.WatchHistoryPage, error)
 	SaveWatchProgress(context.Context, int, service.WatchProgress) error
@@ -43,6 +48,7 @@ func libraryArtworkHandler(artwork ArtworkReader) gin.HandlerFunc {
 
 type libraryPageQuery struct {
 	Page  int `form:"page,default=1" binding:"min=1"`
+	Group int `form:"group" binding:"omitempty,min=1"`
 	Limit int `form:"limit,default=20" binding:"min=1,max=100"`
 }
 
@@ -53,7 +59,7 @@ func libraryMoviesHandler(library LibraryManager) gin.HandlerFunc {
 			c.Error(BadRequest(err))
 			return
 		}
-		movies, err := library.Movies(c.Request.Context(), query.Page, query.Limit)
+		movies, err := library.Movies(c.Request.Context(), query.Page, query.Limit, query.Group)
 		if err != nil {
 			c.Error(err)
 			return
@@ -82,6 +88,103 @@ func libraryWatchedHandler(library LibraryManager) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"id": uri.ID, "watched": true, "history": history})
+	}
+}
+
+type favoriteGroupInput struct {
+	Name string `json:"name" binding:"required,max=200"`
+}
+
+type favoriteInput struct {
+	GroupIDs []int `json:"group_ids" binding:"max=50,dive,min=1"`
+}
+
+func libraryFavoriteGroupsHandler(library LibraryManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		groups, err := library.FavoriteGroups(c.Request.Context())
+		if err != nil {
+			c.Error(err)
+			return
+		}
+		c.JSON(http.StatusOK, groups)
+	}
+}
+
+func libraryFavoriteGroupCreateHandler(library LibraryManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var input favoriteGroupInput
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.Error(BadRequest(err))
+			return
+		}
+		group, err := library.CreateFavoriteGroup(c.Request.Context(), input.Name)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+		c.JSON(http.StatusCreated, group)
+	}
+}
+
+func libraryFavoriteGroupUpdateHandler(library LibraryManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var uri struct {
+			ID int `uri:"id" binding:"required,min=1"`
+		}
+		if err := c.ShouldBindUri(&uri); err != nil {
+			c.Error(BadRequest(err))
+			return
+		}
+		var input favoriteGroupInput
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.Error(BadRequest(err))
+			return
+		}
+		group, err := library.RenameFavoriteGroup(c.Request.Context(), uri.ID, input.Name)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+		c.JSON(http.StatusOK, group)
+	}
+}
+
+func libraryFavoriteGroupDeleteHandler(library LibraryManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var uri struct {
+			ID int `uri:"id" binding:"required,min=1"`
+		}
+		if err := c.ShouldBindUri(&uri); err != nil {
+			c.Error(BadRequest(err))
+			return
+		}
+		if err := library.DeleteFavoriteGroup(c.Request.Context(), uri.ID); err != nil {
+			c.Error(err)
+			return
+		}
+		c.JSON(http.StatusOK, nil)
+	}
+}
+
+func libraryFavoriteHandler(library LibraryManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var uri struct {
+			ID int `uri:"id" binding:"required,min=1"`
+		}
+		if err := c.ShouldBindUri(&uri); err != nil {
+			c.Error(BadRequest(err))
+			return
+		}
+		var input favoriteInput
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.Error(BadRequest(err))
+			return
+		}
+		if err := library.SetFavorite(c.Request.Context(), uri.ID, input.GroupIDs); err != nil {
+			c.Error(err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"id": uri.ID, "group_ids": input.GroupIDs})
 	}
 }
 

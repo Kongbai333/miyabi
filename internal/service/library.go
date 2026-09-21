@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"entgo.io/ent/dialect/sql"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/file"
@@ -38,6 +37,7 @@ type LibraryMovie struct {
 	Tags         []LibraryTag       `json:"tags"`
 	ScrapeStatus movie.ScrapeStatus `json:"scrape_status"`
 	Watched      bool               `json:"watched"`
+	FavoriteGroupIDs []int              `json:"favorite_group_ids"`
 }
 
 type LibraryTag struct {
@@ -91,7 +91,7 @@ func libraryFiles(source LibrarySource) predicate.File {
 	return file.And(file.AccountIDEQ(source.AccountID), file.RootIDEQ(source.Directory.ID))
 }
 
-func (service *LibraryService) Movies(ctx context.Context, page, limit int) (LibraryPage, error) {
+func (service *LibraryService) Movies(ctx context.Context, page, limit, groupID int) (LibraryPage, error) {
 	result := LibraryPage{Movies: []LibraryMovie{}, Page: page}
 	source, err := loadLibrarySource(ctx, service.database)
 	if err != nil {
@@ -102,16 +102,19 @@ func (service *LibraryService) Movies(ctx context.Context, page, limit int) (Lib
 	}
 	result.Source = source
 	scope := libraryFiles(*source)
-	result.Total, err = service.database.File.Query().Where(scope).Aggregate(func(s *sql.Selector) string {
-		return sql.As("COUNT(DISTINCT "+s.C(file.FieldMovieID)+")", "total")
-	}).Int(ctx)
+	// A group filter narrows the same scope, so paging and counting agree.
+	movieScope := movie.HasFilesWith(scope)
+	if group := favoriteScope(groupID); group != nil {
+		movieScope = movie.And(movieScope, group)
+	}
+	result.Total, err = service.database.Movie.Query().Where(movieScope).Count(ctx)
 	if err != nil {
 		return result, fmt.Errorf("count library index: %w", err)
 	}
 	if result.Total == 0 {
 		return result, nil
 	}
-	records, err := service.database.Movie.Query().Where(movie.HasFilesWith(scope)).
+	records, err := service.database.Movie.Query().Where(movieScope).
 		Select(movie.FieldID, movie.FieldCode, movie.FieldTitle, movie.FieldJavdbID, movie.FieldCover, movie.FieldPoster,
 			movie.FieldFanarts, movie.FieldReleaseDate, movie.FieldDuration, movie.FieldRating,
 			movie.FieldDirectorID, movie.FieldDirectorName, movie.FieldMakerID, movie.FieldMakerName,
@@ -128,6 +131,16 @@ func (service *LibraryService) Movies(ctx context.Context, page, limit int) (Lib
 	if err != nil {
 		return result, fmt.Errorf("list library movies: %w", err)
 	}
+	// One lookup for the whole page; the card only needs the group ids it is in.
+	movieIDs := make([]int, len(records))
+	for index, record := range records {
+		movieIDs[index] = record.ID
+	}
+	favorites, err := service.favoriteMovieIDs(ctx, movieIDs)
+	if err != nil {
+		return result, err
+	}
+
 	for _, record := range records {
 		item := LibraryMovie{
 			ID: record.ID, Code: record.Code, Title: record.Title,
@@ -137,6 +150,7 @@ func (service *LibraryService) Movies(ctx context.Context, page, limit int) (Lib
 			Maker:    libraryEntity(record.MakerID, record.MakerName), Series: libraryEntity(record.SeriesID, record.SeriesName),
 			Actors: make([]LibraryEntity, 0, len(record.Edges.Actors)),
 			Tags:   make([]LibraryTag, 0, len(record.Edges.Tags)), ScrapeStatus: record.ScrapeStatus, Watched: record.Watched,
+			FavoriteGroupIDs: valueOrEmpty(favorites[record.ID]),
 		}
 		if record.ReleaseDate != nil {
 			item.ReleaseDate = record.ReleaseDate.Format(time.DateOnly)

@@ -24,11 +24,11 @@ type libraryWatchStub struct {
 
 type libraryPageStub struct {
 	LibraryManager
-	page, limit int
+	page, limit, group int
 }
 
-func (stub *libraryPageStub) Movies(_ context.Context, page, limit int) (service.LibraryPage, error) {
-	stub.page, stub.limit = page, limit
+func (stub *libraryPageStub) Movies(_ context.Context, page, limit, group int) (service.LibraryPage, error) {
+	stub.page, stub.limit, stub.group = page, limit, group
 	return service.LibraryPage{Page: page, Movies: []service.LibraryMovie{}}, nil
 }
 

@@ -29,9 +29,10 @@ export type LibraryMovie = {
   tags: Array<{ id: number; javdb_id: string; name: string }>
   scrape_status: 'pending' | 'done' | 'failed'
   watched: boolean
+  favorite_group_ids: number[]
 }
 
-type LibraryPage = {
+export type LibraryPage = {
   source?: LibrarySource
   movies: LibraryMovie[]
   total: number
@@ -44,14 +45,18 @@ export type LibraryFile = { id: string; name: string; path: string; size: number
 export const libraryKeys = {
   all: ['library'] as const,
   movieLists: ['library', 'movies'] as const,
-  movies: (page: number) => ['library', 'movies', page] as const
+  movies: (page: number, group: number) => ['library', 'movies', page, group] as const
 }
 
-export function useLibraryMovies(page: number) {
+export function useLibraryMovies(page: number, group = 0) {
   return useQuery({
-    queryKey: libraryKeys.movies(page),
+    queryKey: libraryKeys.movies(page, group),
     queryFn: ({ signal }) =>
-      apiGet<LibraryPage>('/api/library/movies', { page, limit: LIBRARY_PAGE_SIZE }, signal),
+      apiGet<LibraryPage>(
+        '/api/library/movies',
+        { page, limit: LIBRARY_PAGE_SIZE, group: group > 0 ? group : undefined },
+        signal
+      ),
     retry: false,
     refetchOnWindowFocus: false
   })

@@ -45,7 +45,10 @@
         }
       ],
       "scrape_status": "done",
-      "watched": true
+      "watched": true,
+      "favorite_group_ids": [
+        4
+      ]
     },
     {
       "id": 8,
@@ -56,7 +59,8 @@
       "actors": [],
       "tags": [],
       "scrape_status": "failed",
-      "watched": false
+      "watched": false,
+      "favorite_group_ids": []
     }
   ],
   "total": 2,
