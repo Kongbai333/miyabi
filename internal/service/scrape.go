@@ -20,6 +20,7 @@ import (
 	mediaimage "github.com/ppxb/miyabi/internal/image"
 	"github.com/ppxb/miyabi/internal/nfo"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 type metadataPayload struct {
@@ -433,4 +434,24 @@ func saveMovieMetadata(ctx context.Context, tx *ent.Tx, id int, doc nfo.Movie) e
 		update.AddTagIDs(ids...)
 	}
 	return update.Exec(ctx)
+}
+
+// Finished updates movie.scrape_status to failed inside the completion transaction
+// if a scrape or cover job failed.
+func (service *ScrapeService) Finished(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) error {
+	if result == nil {
+		return nil
+	}
+	if job.Type != tasks.KindScrape && job.Type != tasks.KindCover {
+		return nil
+	}
+	input, err := tasks.DecodePayload[metadataPayload](job.Payload)
+	if err != nil {
+		return err
+	}
+	return tx.Movie.Update().Where(
+		movie.IDEQ(input.MovieID),
+		movie.ScrapeStatusNEQ(movie.ScrapeStatusDone),
+		movie.HasFilesWith(libraryFiles(input.Source)),
+	).SetScrapeStatus(movie.ScrapeStatusFailed).Exec(ctx)
 }

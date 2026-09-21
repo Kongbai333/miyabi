@@ -351,7 +351,7 @@ func (service *OfflineService) submissions(ctx context.Context, records []*ent.T
 		if err != nil {
 			return nil, fmt.Errorf("read download scan tasks: %w", err)
 		}
-		infos, err := service.tasks.workflowInfos(ctx, parents)
+		infos, err := service.tasks.Workflows(ctx, parents)
 		if err != nil {
 			return nil, err
 		}

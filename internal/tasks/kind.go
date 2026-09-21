@@ -1,0 +1,16 @@
+package tasks
+
+// Kind represents the type of a background task.
+type Kind string
+
+const (
+	KindScan    Kind = "scan"
+	KindScrape  Kind = "scrape"
+	KindCover   Kind = "cover"
+	KindOffline Kind = "offline"
+)
+
+// String returns the string representation of the task kind.
+func (k Kind) String() string {
+	return string(k)
+}

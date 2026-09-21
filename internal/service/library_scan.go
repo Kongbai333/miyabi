@@ -18,21 +18,7 @@ import (
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
-type ScanProgress struct {
-	Stage                 string `json:"stage"`
-	CurrentPath           string `json:"current_path"`
-	DirectoriesDiscovered int    `json:"directories_discovered"`
-	DirectoriesScanned    int    `json:"directories_scanned"`
-	FilesScanned          int    `json:"files_scanned"`
-	VideoFiles            int    `json:"video_files"`
-	MatchedFiles          int    `json:"matched_files"`
-	UnmatchedFiles        int    `json:"unmatched_files"`
-	Movies                int    `json:"movies"`
-	RemovedFiles          int    `json:"removed_files"`
-	RemovedMovies         int    `json:"removed_movies"`
-	MetadataTotal         int    `json:"metadata_total"`
-	MetadataCompleted     int    `json:"metadata_completed"`
-}
+type ScanProgress = domain.ScanProgress
 
 type scanPayload struct {
 	Source        LibrarySource `json:"source"`
@@ -92,7 +78,7 @@ func (service *LibraryService) StartScan(ctx context.Context) (TaskInfo, error) 
 	if err := service.checkScanSource(state.source(), state.authorizationVersion); err != nil {
 		return TaskInfo{}, err
 	}
-	return service.tasks.enqueueScan(ctx, state.source())
+	return service.tasks.EnqueueScan(ctx, state.source())
 }
 
 func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {

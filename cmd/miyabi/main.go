@@ -20,6 +20,7 @@ import (
 	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/logging"
 	"github.com/ppxb/miyabi/internal/service"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"github.com/ppxb/miyabi/internal/worker"
 )
 
@@ -63,19 +64,20 @@ func run(args []string) error {
 		return fmt.Errorf("initialize discovery service: %w", err)
 	}
 	defer discover.Close()
-	tasks := service.NewTaskService(store.Client)
-	drive, err := service.NewPanService(context.Background(), store.Client, tasks)
+	taskRegistry := tasks.NewRegistry()
+	taskSvc := tasks.NewService(store.Client, taskRegistry)
+	drive, err := service.NewPanService(context.Background(), store.Client, taskSvc)
 	if err != nil {
 		return fmt.Errorf("initialize pan service: %w", err)
 	}
 	defer drive.Close()
-	offline := service.NewOfflineService(store.Client, discover, drive, tasks)
-	monitors := service.NewMonitorService(store.Client, discover, offline, tasks)
+	offline := service.NewOfflineService(store.Client, discover, drive, taskSvc)
+	monitors := service.NewMonitorService(store.Client, discover, offline, taskSvc)
 	images, err := mediaimage.NewCache(cfg.DataDir)
 	if err != nil {
 		return err
 	}
-	library := service.NewLibraryService(store.Client, drive, tasks, images)
+	library := service.NewLibraryService(store.Client, drive, taskSvc, images)
 	play := service.NewPlayService(library)
 	defer play.Close()
 	scrape := service.NewScrapeService(library, discover, images)
@@ -83,10 +85,11 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize data service: %w", err)
 	}
+	taskRegistry.Register(tasks.NewHandler(tasks.KindScan, library.Scan))
+	taskRegistry.Register(tasks.NewHandler(tasks.KindScrape, scrape.Scrape, scrape.Finished))
+	taskRegistry.Register(tasks.NewHandler(tasks.KindCover, scrape.Cover, scrape.Finished))
 	// Keep scans, metadata writes and directory sidecars ordered.
-	pool := worker.NewPool(tasks, map[string]worker.Handler{
-		"scan": library.Scan, "scrape": scrape.Scrape, "cover": scrape.Cover,
-	}, 1, logger)
+	pool := tasks.NewPool(taskSvc.Queue(), taskSvc.Bus(), taskRegistry, 1, logger)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -100,7 +103,7 @@ func run(args []string) error {
 		Monitor:  monitors,
 		Library:  library,
 		Play:     play,
-		Tasks:    tasks,
+		Tasks:    taskSvc,
 		Artwork:  scrape,
 		Data:     data,
 		Network:  network,

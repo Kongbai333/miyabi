@@ -13,6 +13,7 @@ import (
 	mediaimage "github.com/ppxb/miyabi/internal/image"
 	"github.com/ppxb/miyabi/internal/nfo"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 func libraryFixture(t testing.TB) (*LibraryService, TaskInfo, scanPayload) {
@@ -28,8 +29,8 @@ func libraryFixture(t testing.TB) (*LibraryService, TaskInfo, scanPayload) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	tasks := NewTaskService(store.Client)
-	queued, err := tasks.enqueueScan(t.Context(), source)
+	taskSvc := NewTaskService(store.Client)
+	queued, err := taskSvc.EnqueueScan(t.Context(), source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +38,12 @@ func libraryFixture(t testing.TB) (*LibraryService, TaskInfo, scanPayload) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewLibraryService(store.Client, nil, tasks, images), queued, scanPayload{Source: source, Scan: ScanProgress{Stage: "scanning"}}
+	library := NewLibraryService(store.Client, nil, taskSvc, images)
+	scrape := NewScrapeService(library, nil, images)
+	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScan, library.Scan))
+	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScrape, scrape.Scrape, scrape.Finished))
+	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindCover, scrape.Cover, scrape.Finished))
+	return library, queued, scanPayload{Source: source, Scan: ScanProgress{Stage: "scanning"}}
 }
 
 func fixtureVideo(id, name string) scanVideo {
@@ -395,19 +401,19 @@ func TestScanPageRollsBackFilesWhenProgressCannotBeSaved(t *testing.T) {
 func TestTaskRecoveryLeavesOfflineJobsAloneAndAllowsFailedScanRetry(t *testing.T) {
 	library, queued, payload := libraryFixture(t)
 	ctx := t.Context()
-	duplicate, err := library.tasks.enqueueScan(ctx, payload.Source)
+	duplicate, err := library.tasks.EnqueueScan(ctx, payload.Source)
 	if err != nil || duplicate.ID != queued.ID {
 		t.Fatalf("duplicate scan = %#v, error = %v", duplicate, err)
 	}
-	offline, err := library.database.Task.Create().SetType("offline").SetStatus(task.StatusRunning).SetProgress(40).Save(ctx)
+	offline, err := library.database.Task.Create().SetType(tasks.KindOffline.String()).SetStatus(task.StatusRunning).SetProgress(40).Save(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err := library.tasks.Claim(ctx, []string{"scan"})
+	job, err := library.tasks.Claim(ctx, []tasks.Kind{tasks.KindScan})
 	if err != nil || job == nil || job.ID != queued.ID {
 		t.Fatalf("claimed job = %#v, error = %v", job, err)
 	}
-	if err := library.tasks.Recover(ctx, []string{"scan"}); err != nil {
+	if err := library.tasks.Recover(ctx, []tasks.Kind{tasks.KindScan}); err != nil {
 		t.Fatal(err)
 	}
 	scan, err := library.database.Task.Get(ctx, queued.ID)
@@ -421,7 +427,7 @@ func TestTaskRecoveryLeavesOfflineJobsAloneAndAllowsFailedScanRetry(t *testing.T
 	if err := library.tasks.Finish(ctx, queued.ID, errors.New("fixture failure")); err != nil {
 		t.Fatal(err)
 	}
-	retry, err := library.tasks.enqueueScan(ctx, payload.Source)
+	retry, err := library.tasks.EnqueueScan(ctx, payload.Source)
 	if err != nil || retry.ID == queued.ID || retry.Status != task.StatusQueued {
 		t.Fatalf("retry = %#v, error = %v", retry, err)
 	}

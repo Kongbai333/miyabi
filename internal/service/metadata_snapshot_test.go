@@ -69,7 +69,7 @@ func newCompletedScanFixture(t *testing.T) *completedScanFixture {
 	if err := library.tasks.Finish(ctx, queued.ID, nil); err != nil {
 		t.Fatal(err)
 	}
-	queued, err = library.tasks.enqueueScan(ctx, payload.Source)
+	queued, err = library.tasks.EnqueueScan(ctx, payload.Source)
 	if err != nil {
 		t.Fatal(err)
 	}

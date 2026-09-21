@@ -10,6 +10,7 @@ import (
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 func mountDirectoryPage(id string) pan.FilePage {
@@ -216,14 +217,14 @@ func TestWorkerWaitsForMountPublicationBeforeClaimingItsScan(t *testing.T) {
 	}
 	waitContext, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
 	defer cancel()
-	if job, err := library.tasks.Claim(waitContext, []string{"scan"}); !errors.Is(err, context.DeadlineExceeded) || job != nil {
+	if job, err := library.tasks.Claim(waitContext, []tasks.Kind{tasks.KindScan}); !errors.Is(err, context.DeadlineExceeded) || job != nil {
 		t.Fatalf("worker claimed a scan before its source was published: %+v err=%v", job, err)
 	}
 	release()
 	if err := awaitPan(t, finished); err != nil {
 		t.Fatal(err)
 	}
-	job, err := library.tasks.Claim(ctx, []string{"scan"})
+	job, err := library.tasks.Claim(ctx, []tasks.Kind{tasks.KindScan})
 	if err != nil || job == nil || library.drive.snapshot().directory.ID != "20" {
 		t.Fatalf("published scan is not claimable: %+v err=%v", job, err)
 	}

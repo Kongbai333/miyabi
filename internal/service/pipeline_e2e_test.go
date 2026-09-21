@@ -21,6 +21,7 @@ import (
 	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/nfo"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 // fakeDrive is an in-memory 115 account: a directory tree, file contents keyed
@@ -285,9 +286,9 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 	drive := newFakeDrive(source.AccountID)
 	drive.addDirectory("10", "0", "Movies")
 
-	tasks := NewTaskService(store.Client)
+	taskSvc := NewTaskService(store.Client)
 	pan := &PanService{
-		database: store.Client, client: drive, tasks: tasks, tokens: panTestTokens("pipeline"),
+		database: store.Client, client: drive, tasks: taskSvc, tokens: panTestTokens("pipeline"),
 		directory: panLibraryDirectory{AccountID: source.AccountID, PanLibraryDirectory: source.Directory},
 	}
 	if err := saveSetting(ctx, store.Client, panCredentialsSetting, pan.tokens); err != nil {
@@ -309,10 +310,14 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 	discover.javdb.Close()
 	catalogue := &fakeCatalogue{ids: make(map[string]string), details: make(map[string]domain.MovieDetail), cover: fixtureJPEG(t, 600, 400)}
 	discover.javdb = catalogue
-	library := NewLibraryService(store.Client, pan, tasks, images)
+	library := NewLibraryService(store.Client, pan, taskSvc, images)
+	scrape := NewScrapeService(library, discover, images)
+	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScan, library.Scan))
+	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScrape, scrape.Scrape, scrape.Finished))
+	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindCover, scrape.Cover, scrape.Finished))
 	return &pipelineFixture{
-		store: store, drive: drive, catalogue: catalogue, tasks: tasks,
-		library: library, discover: discover, scrape: NewScrapeService(library, discover, images), source: source,
+		store: store, drive: drive, catalogue: catalogue, tasks: taskSvc,
+		library: library, discover: discover, scrape: scrape, source: source,
 	}
 }
 
@@ -326,10 +331,10 @@ func (fixture *pipelineFixture) addCatalogueMovie(detail domain.MovieDetail) {
 func (fixture *pipelineFixture) runQueue(t *testing.T) []TaskJob {
 	t.Helper()
 	ctx := t.Context()
-	handlers := map[string]func(context.Context, TaskJob) error{
-		"scan": fixture.library.Scan, "scrape": fixture.scrape.Scrape, "cover": fixture.scrape.Cover,
+	handlers := map[tasks.Kind]func(context.Context, TaskJob) error{
+		tasks.KindScan: fixture.library.Scan, tasks.KindScrape: fixture.scrape.Scrape, tasks.KindCover: fixture.scrape.Cover,
 	}
-	types := []string{"cover", "scan", "scrape"}
+	types := []tasks.Kind{tasks.KindCover, tasks.KindScan, tasks.KindScrape}
 	var executed []TaskJob
 	for range 20 {
 		job, err := fixture.tasks.Claim(ctx, types)
@@ -389,7 +394,7 @@ func TestPipelineScansScrapesAndWritesSidecarsEndToEnd(t *testing.T) {
 	executed := fixture.runQueue(t)
 	kinds := make([]string, len(executed))
 	for index, job := range executed {
-		kinds[index] = job.Type
+		kinds[index] = string(job.Type)
 	}
 	if !slices.Equal(kinds, []string{"scan", "scrape", "cover"}) {
 		t.Fatalf("executed task chain = %v", kinds)
@@ -536,7 +541,7 @@ func TestPipelineMarksMovieFailedWhenCatalogueLacksIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	executed := fixture.runQueue(t)
-	if len(executed) != 2 || executed[1].Type != "scrape" {
+	if len(executed) != 2 || executed[1].Type != tasks.KindScrape {
 		t.Fatalf("executed %v", executed)
 	}
 	scrapes := fixture.tasksOfType(t, "scrape")

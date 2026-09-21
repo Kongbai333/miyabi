@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/file"
@@ -15,10 +16,7 @@ import (
 	mediaimage "github.com/ppxb/miyabi/internal/image"
 )
 
-type LibrarySource struct {
-	AccountID string              `json:"account_id"`
-	Directory PanLibraryDirectory `json:"directory"`
-}
+type LibrarySource = domain.LibrarySource
 
 type LibraryMovie struct {
 	ID           int                `json:"id"`

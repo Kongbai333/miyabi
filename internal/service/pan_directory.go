@@ -5,19 +5,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 const panDirectorySetting = "pan.library_directory"
 
-type PanLibraryDirectory struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Path string `json:"path"`
-}
+type PanLibraryDirectory = domain.LibraryDirectory
 
 type panLibraryDirectory struct {
 	AccountID string `json:"account_id"`
@@ -76,15 +74,15 @@ func (service *PanService) SelectDirectory(ctx context.Context, directoryID stri
 	if _, err := service.sourceState(state.source(), state.authorizationVersion); err != nil {
 		return PanLibraryDirectory{}, err
 	}
-	if err := service.tasks.queue.Lock(ctx); err != nil {
+	if err := service.tasks.LockQueue(ctx); err != nil {
 		return PanLibraryDirectory{}, err
 	}
-	defer service.tasks.queue.Unlock()
+	defer service.tasks.UnlockQueue()
 	if err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
 		if err := saveSetting(ctx, tx.Client(), panDirectorySetting, record); err != nil {
 			return err
 		}
-		_, err := ensureScanTask(ctx, tx.Task, LibrarySource{AccountID: account.ID, Directory: directory}, task.StatusQueued)
+		_, err := tasks.EnsureScanTask(ctx, tx.Task, LibrarySource{AccountID: account.ID, Directory: directory}, task.StatusQueued)
 		return err
 	}); err != nil {
 		return PanLibraryDirectory{}, fmt.Errorf("mount media directory and queue scan: %w", err)
