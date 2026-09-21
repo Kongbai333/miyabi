@@ -59,6 +59,14 @@ export function imageURL(source: string) {
   return `/api/image?v=3&url=${encodeURIComponent(source)}`
 }
 
+// The session cookie can lapse while a tab stays open. Clearing the cached
+// session state makes the gate re-appear instead of showing failed panels.
+let onUnauthorized: (() => void) | undefined
+
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (!response.ok) {
@@ -79,6 +87,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         throw error
       }
     }
+    if (response.status === 401) onUnauthorized?.()
     throw new ApiError(message, response.status)
   }
   return response.json() as Promise<T>

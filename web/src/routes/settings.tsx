@@ -4,6 +4,7 @@ import { AppPage } from '@/components/app-page'
 import { PageHeader } from '@/components/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import { AccessSection } from '@/features/settings/access-section'
 import { AppearanceSection } from '@/features/settings/appearance-section'
 import { DataSection } from '@/features/settings/data-section'
 import { JavDBSection } from '@/features/settings/javdb-section'
@@ -26,6 +27,8 @@ function SettingsPage() {
           <AppearanceSection />
           <Separator />
           <PrivacySection />
+          <Separator />
+          <AccessSection />
           <Separator />
           <NetworkSection />
           <Separator />

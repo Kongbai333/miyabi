@@ -2,7 +2,10 @@ package service
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestAccessGate(t *testing.T) {
@@ -35,5 +38,60 @@ func TestAccessGate(t *testing.T) {
 				t.Fatalf("expected password error, got %v", err)
 			}
 		})
+	}
+}
+
+func TestAccessSessionAcceptsIssuedTokenAndRejectsTampering(t *testing.T) {
+	gate := NewAccessGateService("test-password")
+	token, expires := gate.IssueSession()
+	if !expires.After(time.Now()) {
+		t.Fatalf("issued session already expired: %v", expires)
+	}
+	if !gate.ValidSession(token) {
+		t.Fatal("issued session was rejected")
+	}
+	if !strings.Contains(token, ".") {
+		t.Fatalf("token is not signed: %q", token)
+	}
+
+	deadline, signature, _ := strings.Cut(token, ".")
+	for _, scenario := range []struct {
+		name  string
+		token string
+	}{
+		{"empty", ""},
+		{"unsigned expiry", deadline},
+		{"missing signature", deadline + "."},
+		{"forged signature", deadline + "." + strings.Repeat("0", len(signature))},
+		{"truncated signature", deadline + "." + signature[:len(signature)-1]},
+		{"extended expiry", "99999999999." + signature},
+		{"not a number", "later." + signature},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			if gate.ValidSession(scenario.token) {
+				t.Fatalf("accepted %q", scenario.token)
+			}
+		})
+	}
+}
+
+func TestAccessSessionRejectsExpiredTokensAndOtherPasswords(t *testing.T) {
+	gate := NewAccessGateService("test-password")
+	token, _ := gate.IssueSession()
+
+	// The expiry is signed, so backdating it invalidates the signature too.
+	_, signature, _ := strings.Cut(token, ".")
+	past := time.Now().Add(-time.Hour).Unix()
+	if gate.ValidSession(strconv.FormatInt(past, 10) + "." + signature) {
+		t.Fatal("accepted a backdated expiry")
+	}
+	// Changing the deployment password must invalidate cookies issued before.
+	rotated := NewAccessGateService("new-password")
+	if rotated.ValidSession(token) {
+		t.Fatal("a rotated password accepted an old session")
+	}
+	// A disabled gate never validates, so an empty password cannot be bypassed.
+	if NewAccessGateService("").ValidSession(token) {
+		t.Fatal("a disabled gate validated a token")
 	}
 }
