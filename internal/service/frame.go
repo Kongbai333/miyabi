@@ -200,9 +200,9 @@ func (service *ScrapeService) readMediaWithBase(ctx context.Context, address str
 }
 
 // enqueueFrameTask gives a movie whose metadata scrape failed a card image from
-// its own video. A movie that already has artwork, or a still already on its
-// way, is left alone.
-func enqueueFrameTask(ctx context.Context, tx *ent.Tx, input metadataPayload) error {
+// its own video, and reports whether it queued one. A movie that already has
+// artwork, or a still already on its way, is left alone.
+func enqueueFrameTask(ctx context.Context, tx *ent.Tx, input metadataPayload) (bool, error) {
 	pending, err := tx.Task.Query().Where(
 		task.TypeEQ("frame"), task.StatusIn(task.StatusQueued, task.StatusRunning),
 		func(selector *sql.Selector) {
@@ -210,26 +210,70 @@ func enqueueFrameTask(ctx context.Context, tx *ent.Tx, input metadataPayload) er
 		},
 	).Exist(ctx)
 	if err != nil {
-		return fmt.Errorf("find queued video still: %w", err)
+		return false, fmt.Errorf("find queued video still: %w", err)
 	}
 	if pending {
-		return nil
+		return false, nil
 	}
 	// A task payload can outlive the movie it references, and the surrounding
 	// update treats a missing movie as a no-op, so this has to as well.
 	records, err := tx.Movie.Query().Where(movie.IDEQ(input.MovieID)).Select(movie.FieldCover).All(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(records) == 0 || valueOrZero(records[0].Cover) != "" {
-		return nil
+		return false, nil
 	}
 	payload, err := encodeTaskPayload(framePayload{Source: input.Source, ScanTaskID: input.ScanTaskID, MovieID: input.MovieID})
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := tx.Task.Create().SetType("frame").SetPayload(payload).Exec(ctx); err != nil {
-		return fmt.Errorf("queue video still: %w", err)
+		return false, fmt.Errorf("queue video still: %w", err)
 	}
-	return nil
+	return true, nil
+}
+
+// QueueMissingCovers gives the movies of the mounted directory whose scrape
+// already failed a card image taken from their own video, and reports how many
+// it queued. The fallback normally rides on the scrape that failed, so this is
+// for the movies that failed before it existed: rescanning would reach them
+// too, but only by putting every one of them to JavDB again.
+func (service *LibraryService) QueueMissingCovers(ctx context.Context) (int, error) {
+	state, err := service.drive.verifiedSource(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if err := service.checkScanSource(state.source(), state.authorizationVersion); err != nil {
+		return 0, err
+	}
+	source := state.source()
+	queued := 0
+	err = ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
+		// A movie the scan is still working on is pending, not failed, and a
+		// scrape that succeeded always carries artwork with it, so the failed
+		// ones without a cover are exactly the cards left blank.
+		records, err := tx.Movie.Query().Where(
+			movie.ScrapeStatusEQ(movie.ScrapeStatusFailed),
+			movie.HasFilesWith(libraryFiles(source)),
+			movie.Or(movie.CoverIsNil(), movie.CoverEQ("")),
+		).Select(movie.FieldID).Order(ent.Asc(movie.FieldID)).All(ctx)
+		if err != nil {
+			return fmt.Errorf("find movies without artwork: %w", err)
+		}
+		for _, record := range records {
+			added, err := enqueueFrameTask(ctx, tx, metadataPayload{Source: source, MovieID: record.ID})
+			if err != nil {
+				return err
+			}
+			if added {
+				queued++
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return queued, nil
 }

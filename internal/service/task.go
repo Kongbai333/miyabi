@@ -336,7 +336,7 @@ func (service *TaskService) Finish(ctx context.Context, id int, runError error) 
 					return err
 				}
 				// A failed scrape is exactly the case the card has no image for.
-				if err := enqueueFrameTask(ctx, tx, input); err != nil {
+				if _, err := enqueueFrameTask(ctx, tx, input); err != nil {
 					return err
 				}
 			}

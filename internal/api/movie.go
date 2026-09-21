@@ -20,6 +20,7 @@ type LibraryManager interface {
 	SaveWatchProgress(context.Context, int, service.WatchProgress) error
 	ClearWatchHistory(context.Context, service.WatchHistoryScope) (int, error)
 	StartScan(context.Context) (service.TaskInfo, error)
+	QueueMissingCovers(context.Context) (int, error)
 }
 
 type ArtworkReader interface {
@@ -218,5 +219,16 @@ func libraryScanHandler(library LibraryManager) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusAccepted, task)
+	}
+}
+
+func libraryCoverBackfillHandler(library LibraryManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		queued, err := library.QueueMissingCovers(c.Request.Context())
+		if err != nil {
+			c.Error(err)
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{"queued": queued})
 	}
 }

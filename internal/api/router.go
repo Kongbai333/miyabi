@@ -72,6 +72,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	api.DELETE("/library/history", libraryHistoryClearHandler(deps.Library))
 	api.PUT("/library/history/:id/progress", libraryHistoryProgressHandler(deps.Library))
 	api.POST("/library/scan", libraryScanHandler(deps.Library))
+	api.POST("/library/covers/backfill", libraryCoverBackfillHandler(deps.Library))
 	api.GET("/library/artwork/:key", libraryArtworkHandler(deps.Artwork))
 	playAPI := api.Group("/play", func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")

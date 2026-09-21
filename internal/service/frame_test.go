@@ -184,6 +184,80 @@ func TestFailedScrapeToleratesAMissingMovie(t *testing.T) {
 	}
 }
 
+// A library that failed to scrape before the fallback existed still has blank
+// cards, and rescanning it would put every one of those movies to JavDB again.
+func TestQueueMissingCoversTargetsFailedMoviesWithoutArtwork(t *testing.T) {
+	library, _ := panConcurrencyFixture(t)
+	ctx := t.Context()
+	source := library.drive.snapshot().source()
+	artwork := mediaimage.URLPrefix + strings.Repeat("a", 64)
+
+	attach := func(fileID string, ownerID int) {
+		t.Helper()
+		library.database.File.Create().SetFileID(fileID).SetName(fileID + ".mp4").SetSize(1 << 30).
+			SetAccountID(source.AccountID).SetRootID(source.Directory.ID).SetMovieID(ownerID).SaveX(ctx)
+	}
+	blank := library.database.Movie.Create().SetCode("ABP-001").
+		SetScrapeStatus(movie.ScrapeStatusFailed).SaveX(ctx)
+	attach("video", blank.ID)
+	// A scrape still on its way owns the card, and one that finished always
+	// carries artwork with it.
+	pending := library.database.Movie.Create().SetCode("ABP-002").SaveX(ctx)
+	attach("pending", pending.ID)
+	covered := library.database.Movie.Create().SetCode("ABP-003").SetCover(artwork).
+		SetScrapeStatus(movie.ScrapeStatusFailed).SaveX(ctx)
+	attach("covered", covered.ID)
+	// Nothing to read a still from.
+	library.database.Movie.Create().SetCode("ABP-004").SetScrapeStatus(movie.ScrapeStatusFailed).SaveX(ctx)
+	// Indexed under another directory, which is not the one on screen.
+	elsewhere := library.database.Movie.Create().SetCode("ABP-005").
+		SetScrapeStatus(movie.ScrapeStatusFailed).SaveX(ctx)
+	library.database.File.Create().SetFileID("elsewhere").SetName("ABP-005.mp4").SetSize(1 << 30).
+		SetAccountID("999").SetRootID("99").SetMovieID(elsewhere.ID).SaveX(ctx)
+
+	queued, err := library.QueueMissingCovers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued %d stills, want 1", queued)
+	}
+	stills := library.database.Task.Query().Where(task.TypeEQ("frame")).AllX(ctx)
+	if len(stills) != 1 {
+		t.Fatalf("frame tasks = %d", len(stills))
+	}
+	payload, err := decodeTaskPayload[framePayload](stills[0].Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.MovieID != blank.ID || payload.Source != source {
+		t.Fatalf("still payload = %+v", payload)
+	}
+}
+
+func TestQueueMissingCoversKeepsQueuedStillsAndRetriesFailedOnes(t *testing.T) {
+	library, _ := panConcurrencyFixture(t)
+	ctx := t.Context()
+	source := library.drive.snapshot().source()
+	film := library.database.Movie.Create().SetCode("ABP-001").
+		SetScrapeStatus(movie.ScrapeStatusFailed).SaveX(ctx)
+	library.database.File.Create().SetFileID("video").SetName("ABP-001.mp4").SetSize(1 << 30).
+		SetAccountID(source.AccountID).SetRootID(source.Directory.ID).SetMovieID(film.ID).SaveX(ctx)
+
+	if queued, err := library.QueueMissingCovers(ctx); err != nil || queued != 1 {
+		t.Fatalf("first pass queued %d stills: %v", queued, err)
+	}
+	if queued, err := library.QueueMissingCovers(ctx); err != nil || queued != 0 {
+		t.Fatalf("second pass queued %d stills: %v", queued, err)
+	}
+	// A still 115 could not serve yet stays worth another attempt.
+	stills := library.database.Task.Query().Where(task.TypeEQ("frame")).AllX(ctx)
+	library.database.Task.UpdateOneID(stills[0].ID).SetStatus(task.StatusFailed).ExecX(ctx)
+	if queued, err := library.QueueMissingCovers(ctx); err != nil || queued != 1 {
+		t.Fatalf("retry queued %d stills: %v", queued, err)
+	}
+}
+
 func TestFrameFillsAnEmptyCardFromTheTranscodedStream(t *testing.T) {
 	requireFFmpeg(t)
 	library, client := panConcurrencyFixture(t)

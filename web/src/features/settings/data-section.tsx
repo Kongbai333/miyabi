@@ -1,8 +1,9 @@
-import { DatabaseIcon, LoaderCircleIcon, RefreshCwIcon, Trash2Icon } from 'lucide-react'
+import { DatabaseIcon, ImageIcon, LoaderCircleIcon, RefreshCwIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useClearCache, useDataInfo } from '@/api/data'
+import { useBackfillCovers } from '@/api/library'
 import { usePanAccount } from '@/api/pan'
 import { useClearWatchHistory } from '@/api/watch-history'
 import { InlineError } from '@/components/error-state'
@@ -26,18 +27,19 @@ export function DataSection() {
   const info = useDataInfo()
   const clearCache = useClearCache()
   const account = usePanAccount()
+  const backfill = useBackfillCovers()
   const clearHistory = useClearWatchHistory()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const cache = info.data?.cache
   const busy = info.isFetching || clearCache.isPending
-  // Clearing history is scoped to the mounted directory, so the button needs
+  // Both maintenance actions are scoped to the mounted directory, so they need
   // the same source the library is reading from.
   const scope = {
     account_id: account.data?.account?.id ?? '',
     directory_id: account.data?.directory?.id ?? ''
   }
-  const historyReady = scope.account_id !== '' && scope.directory_id !== ''
+  const sourceReady = scope.account_id !== '' && scope.directory_id !== ''
 
   function openConfirmation() {
     clearCache.reset()
@@ -64,6 +66,19 @@ export function DataSection() {
         setHistoryOpen(false)
         toast.success(`已清除 ${numberFormat.format(removed)} 条观看记录`)
       }
+    })
+  }
+
+  function backfillCovers() {
+    backfill.mutate(undefined, {
+      onSuccess: ({ queued }) => {
+        toast.success(
+          queued > 0
+            ? `已排队为 ${numberFormat.format(queued)} 部影片抽取封面`
+            : '没有需要补齐封面的影片'
+        )
+      },
+      onError: error => toast.error('无法排队抽取封面', { description: error.message })
     })
   }
 
@@ -127,11 +142,26 @@ export function DataSection() {
           type="button"
           variant="destructive"
           size="sm"
-          disabled={!historyReady || clearHistory.isPending}
+          disabled={!sourceReady || clearHistory.isPending}
           onClick={openHistoryConfirmation}
         >
           {clearHistory.isPending ? <LoaderCircleIcon className="animate-spin" /> : <Trash2Icon />}
           清除观看记录
+        </Button>
+      </SettingRow>
+      <SettingRow
+        title="缺失封面"
+        description="为刮削失败、没有封面的影片从视频里抽取一帧作为卡片图片。已有封面的影片不会被动。"
+      >
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!sourceReady || backfill.isPending}
+          onClick={backfillCovers}
+        >
+          {backfill.isPending ? <LoaderCircleIcon className="animate-spin" /> : <ImageIcon />}
+          补齐缺失封面
         </Button>
       </SettingRow>
       {info.isError ? (

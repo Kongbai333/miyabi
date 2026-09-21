@@ -183,3 +183,13 @@ export function useStartLibraryScan() {
     }
   })
 }
+
+// A library that failed to scrape before the video still existed still shows
+// blank cards, and rescanning it would put every one of those movies to JavDB
+// again. The covers appear as the queued stills finish, which is what
+// NotifyLibraryChanged already refreshes.
+export function useBackfillCovers() {
+  return useMutation({
+    mutationFn: () => apiPost<{ queued: number }>('/api/library/covers/backfill')
+  })
+}
