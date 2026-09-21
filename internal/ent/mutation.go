@@ -13,6 +13,8 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/ppxb/miyabi/internal/ent/actor"
+	"github.com/ppxb/miyabi/internal/ent/favorite"
+	"github.com/ppxb/miyabi/internal/ent/favoritegroup"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/monitor"
 	"github.com/ppxb/miyabi/internal/ent/movie"
@@ -20,6 +22,7 @@ import (
 	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/ent/tag"
 	"github.com/ppxb/miyabi/internal/ent/task"
+	"github.com/ppxb/miyabi/internal/ent/viewedmovie"
 	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 )
 
@@ -32,14 +35,17 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeActor        = "Actor"
-	TypeFile         = "File"
-	TypeMonitor      = "Monitor"
-	TypeMovie        = "Movie"
-	TypeSetting      = "Setting"
-	TypeTag          = "Tag"
-	TypeTask         = "Task"
-	TypeWatchHistory = "WatchHistory"
+	TypeActor         = "Actor"
+	TypeFavorite      = "Favorite"
+	TypeFavoriteGroup = "FavoriteGroup"
+	TypeFile          = "File"
+	TypeMonitor       = "Monitor"
+	TypeMovie         = "Movie"
+	TypeSetting       = "Setting"
+	TypeTag           = "Tag"
+	TypeTask          = "Task"
+	TypeViewedMovie   = "ViewedMovie"
+	TypeWatchHistory  = "WatchHistory"
 )
 
 // ActorMutation represents an operation that mutates the Actor nodes in the graph.
@@ -824,6 +830,1124 @@ func (m *ActorMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Actor edge %s", name)
+}
+
+// FavoriteMutation represents an operation that mutates the Favorite nodes in the graph.
+type FavoriteMutation struct {
+	config
+	op            Op
+	typ           string
+	id            *int
+	created_at    *time.Time
+	updated_at    *time.Time
+	clearedFields map[string]struct{}
+	movie         *int
+	clearedmovie  bool
+	group         *int
+	clearedgroup  bool
+	done          bool
+	oldValue      func(context.Context) (*Favorite, error)
+	predicates    []predicate.Favorite
+}
+
+var _ ent.Mutation = (*FavoriteMutation)(nil)
+
+// favoriteOption allows management of the mutation configuration using functional options.
+type favoriteOption func(*FavoriteMutation)
+
+// newFavoriteMutation creates new mutation for the Favorite entity.
+func newFavoriteMutation(c config, op Op, opts ...favoriteOption) *FavoriteMutation {
+	m := &FavoriteMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeFavorite,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withFavoriteID sets the ID field of the mutation.
+func withFavoriteID(id int) favoriteOption {
+	return func(m *FavoriteMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *Favorite
+		)
+		m.oldValue = func(ctx context.Context) (*Favorite, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().Favorite.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withFavorite sets the old Favorite of the mutation.
+func withFavorite(node *Favorite) favoriteOption {
+	return func(m *FavoriteMutation) {
+		m.oldValue = func(context.Context) (*Favorite, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m FavoriteMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m FavoriteMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *FavoriteMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *FavoriteMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().Favorite.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *FavoriteMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *FavoriteMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the Favorite entity.
+// If the Favorite object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FavoriteMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *FavoriteMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *FavoriteMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *FavoriteMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the Favorite entity.
+// If the Favorite object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FavoriteMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *FavoriteMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetMovieID sets the "movie_id" field.
+func (m *FavoriteMutation) SetMovieID(i int) {
+	m.movie = &i
+}
+
+// MovieID returns the value of the "movie_id" field in the mutation.
+func (m *FavoriteMutation) MovieID() (r int, exists bool) {
+	v := m.movie
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMovieID returns the old "movie_id" field's value of the Favorite entity.
+// If the Favorite object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FavoriteMutation) OldMovieID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMovieID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMovieID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMovieID: %w", err)
+	}
+	return oldValue.MovieID, nil
+}
+
+// ResetMovieID resets all changes to the "movie_id" field.
+func (m *FavoriteMutation) ResetMovieID() {
+	m.movie = nil
+}
+
+// SetGroupID sets the "group_id" field.
+func (m *FavoriteMutation) SetGroupID(i int) {
+	m.group = &i
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *FavoriteMutation) GroupID() (r int, exists bool) {
+	v := m.group
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupID returns the old "group_id" field's value of the Favorite entity.
+// If the Favorite object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FavoriteMutation) OldGroupID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupID: %w", err)
+	}
+	return oldValue.GroupID, nil
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *FavoriteMutation) ResetGroupID() {
+	m.group = nil
+}
+
+// ClearMovie clears the "movie" edge to the Movie entity.
+func (m *FavoriteMutation) ClearMovie() {
+	m.clearedmovie = true
+	m.clearedFields[favorite.FieldMovieID] = struct{}{}
+}
+
+// MovieCleared reports if the "movie" edge to the Movie entity was cleared.
+func (m *FavoriteMutation) MovieCleared() bool {
+	return m.clearedmovie
+}
+
+// MovieIDs returns the "movie" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// MovieID instead. It exists only for internal usage by the builders.
+func (m *FavoriteMutation) MovieIDs() (ids []int) {
+	if id := m.movie; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetMovie resets all changes to the "movie" edge.
+func (m *FavoriteMutation) ResetMovie() {
+	m.movie = nil
+	m.clearedmovie = false
+}
+
+// ClearGroup clears the "group" edge to the FavoriteGroup entity.
+func (m *FavoriteMutation) ClearGroup() {
+	m.clearedgroup = true
+	m.clearedFields[favorite.FieldGroupID] = struct{}{}
+}
+
+// GroupCleared reports if the "group" edge to the FavoriteGroup entity was cleared.
+func (m *FavoriteMutation) GroupCleared() bool {
+	return m.clearedgroup
+}
+
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
+func (m *FavoriteMutation) GroupIDs() (ids []int) {
+	if id := m.group; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetGroup resets all changes to the "group" edge.
+func (m *FavoriteMutation) ResetGroup() {
+	m.group = nil
+	m.clearedgroup = false
+}
+
+// Where appends a list predicates to the FavoriteMutation builder.
+func (m *FavoriteMutation) Where(ps ...predicate.Favorite) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the FavoriteMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *FavoriteMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.Favorite, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *FavoriteMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *FavoriteMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (Favorite).
+func (m *FavoriteMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *FavoriteMutation) Fields() []string {
+	fields := make([]string, 0, 4)
+	if m.created_at != nil {
+		fields = append(fields, favorite.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, favorite.FieldUpdatedAt)
+	}
+	if m.movie != nil {
+		fields = append(fields, favorite.FieldMovieID)
+	}
+	if m.group != nil {
+		fields = append(fields, favorite.FieldGroupID)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *FavoriteMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case favorite.FieldCreatedAt:
+		return m.CreatedAt()
+	case favorite.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case favorite.FieldMovieID:
+		return m.MovieID()
+	case favorite.FieldGroupID:
+		return m.GroupID()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *FavoriteMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case favorite.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case favorite.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case favorite.FieldMovieID:
+		return m.OldMovieID(ctx)
+	case favorite.FieldGroupID:
+		return m.OldGroupID(ctx)
+	}
+	return nil, fmt.Errorf("unknown Favorite field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *FavoriteMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case favorite.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case favorite.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case favorite.FieldMovieID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMovieID(v)
+		return nil
+	case favorite.FieldGroupID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown Favorite field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *FavoriteMutation) AddedFields() []string {
+	var fields []string
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *FavoriteMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *FavoriteMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown Favorite numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *FavoriteMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *FavoriteMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *FavoriteMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown Favorite nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *FavoriteMutation) ResetField(name string) error {
+	switch name {
+	case favorite.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case favorite.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case favorite.FieldMovieID:
+		m.ResetMovieID()
+		return nil
+	case favorite.FieldGroupID:
+		m.ResetGroupID()
+		return nil
+	}
+	return fmt.Errorf("unknown Favorite field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *FavoriteMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.movie != nil {
+		edges = append(edges, favorite.EdgeMovie)
+	}
+	if m.group != nil {
+		edges = append(edges, favorite.EdgeGroup)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *FavoriteMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case favorite.EdgeMovie:
+		if id := m.movie; id != nil {
+			return []ent.Value{*id}
+		}
+	case favorite.EdgeGroup:
+		if id := m.group; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *FavoriteMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *FavoriteMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *FavoriteMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedmovie {
+		edges = append(edges, favorite.EdgeMovie)
+	}
+	if m.clearedgroup {
+		edges = append(edges, favorite.EdgeGroup)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *FavoriteMutation) EdgeCleared(name string) bool {
+	switch name {
+	case favorite.EdgeMovie:
+		return m.clearedmovie
+	case favorite.EdgeGroup:
+		return m.clearedgroup
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *FavoriteMutation) ClearEdge(name string) error {
+	switch name {
+	case favorite.EdgeMovie:
+		m.ClearMovie()
+		return nil
+	case favorite.EdgeGroup:
+		m.ClearGroup()
+		return nil
+	}
+	return fmt.Errorf("unknown Favorite unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *FavoriteMutation) ResetEdge(name string) error {
+	switch name {
+	case favorite.EdgeMovie:
+		m.ResetMovie()
+		return nil
+	case favorite.EdgeGroup:
+		m.ResetGroup()
+		return nil
+	}
+	return fmt.Errorf("unknown Favorite edge %s", name)
+}
+
+// FavoriteGroupMutation represents an operation that mutates the FavoriteGroup nodes in the graph.
+type FavoriteGroupMutation struct {
+	config
+	op               Op
+	typ              string
+	id               *int
+	created_at       *time.Time
+	updated_at       *time.Time
+	name             *string
+	clearedFields    map[string]struct{}
+	favorites        map[int]struct{}
+	removedfavorites map[int]struct{}
+	clearedfavorites bool
+	done             bool
+	oldValue         func(context.Context) (*FavoriteGroup, error)
+	predicates       []predicate.FavoriteGroup
+}
+
+var _ ent.Mutation = (*FavoriteGroupMutation)(nil)
+
+// favoritegroupOption allows management of the mutation configuration using functional options.
+type favoritegroupOption func(*FavoriteGroupMutation)
+
+// newFavoriteGroupMutation creates new mutation for the FavoriteGroup entity.
+func newFavoriteGroupMutation(c config, op Op, opts ...favoritegroupOption) *FavoriteGroupMutation {
+	m := &FavoriteGroupMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeFavoriteGroup,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withFavoriteGroupID sets the ID field of the mutation.
+func withFavoriteGroupID(id int) favoritegroupOption {
+	return func(m *FavoriteGroupMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *FavoriteGroup
+		)
+		m.oldValue = func(ctx context.Context) (*FavoriteGroup, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().FavoriteGroup.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withFavoriteGroup sets the old FavoriteGroup of the mutation.
+func withFavoriteGroup(node *FavoriteGroup) favoritegroupOption {
+	return func(m *FavoriteGroupMutation) {
+		m.oldValue = func(context.Context) (*FavoriteGroup, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m FavoriteGroupMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m FavoriteGroupMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *FavoriteGroupMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *FavoriteGroupMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().FavoriteGroup.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *FavoriteGroupMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *FavoriteGroupMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the FavoriteGroup entity.
+// If the FavoriteGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FavoriteGroupMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *FavoriteGroupMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *FavoriteGroupMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *FavoriteGroupMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the FavoriteGroup entity.
+// If the FavoriteGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FavoriteGroupMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *FavoriteGroupMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetName sets the "name" field.
+func (m *FavoriteGroupMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *FavoriteGroupMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the FavoriteGroup entity.
+// If the FavoriteGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FavoriteGroupMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *FavoriteGroupMutation) ResetName() {
+	m.name = nil
+}
+
+// AddFavoriteIDs adds the "favorites" edge to the Favorite entity by ids.
+func (m *FavoriteGroupMutation) AddFavoriteIDs(ids ...int) {
+	if m.favorites == nil {
+		m.favorites = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.favorites[ids[i]] = struct{}{}
+	}
+}
+
+// ClearFavorites clears the "favorites" edge to the Favorite entity.
+func (m *FavoriteGroupMutation) ClearFavorites() {
+	m.clearedfavorites = true
+}
+
+// FavoritesCleared reports if the "favorites" edge to the Favorite entity was cleared.
+func (m *FavoriteGroupMutation) FavoritesCleared() bool {
+	return m.clearedfavorites
+}
+
+// RemoveFavoriteIDs removes the "favorites" edge to the Favorite entity by IDs.
+func (m *FavoriteGroupMutation) RemoveFavoriteIDs(ids ...int) {
+	if m.removedfavorites == nil {
+		m.removedfavorites = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.favorites, ids[i])
+		m.removedfavorites[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedFavorites returns the removed IDs of the "favorites" edge to the Favorite entity.
+func (m *FavoriteGroupMutation) RemovedFavoritesIDs() (ids []int) {
+	for id := range m.removedfavorites {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// FavoritesIDs returns the "favorites" edge IDs in the mutation.
+func (m *FavoriteGroupMutation) FavoritesIDs() (ids []int) {
+	for id := range m.favorites {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetFavorites resets all changes to the "favorites" edge.
+func (m *FavoriteGroupMutation) ResetFavorites() {
+	m.favorites = nil
+	m.clearedfavorites = false
+	m.removedfavorites = nil
+}
+
+// Where appends a list predicates to the FavoriteGroupMutation builder.
+func (m *FavoriteGroupMutation) Where(ps ...predicate.FavoriteGroup) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the FavoriteGroupMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *FavoriteGroupMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.FavoriteGroup, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *FavoriteGroupMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *FavoriteGroupMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (FavoriteGroup).
+func (m *FavoriteGroupMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *FavoriteGroupMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.created_at != nil {
+		fields = append(fields, favoritegroup.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, favoritegroup.FieldUpdatedAt)
+	}
+	if m.name != nil {
+		fields = append(fields, favoritegroup.FieldName)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *FavoriteGroupMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case favoritegroup.FieldCreatedAt:
+		return m.CreatedAt()
+	case favoritegroup.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case favoritegroup.FieldName:
+		return m.Name()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *FavoriteGroupMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case favoritegroup.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case favoritegroup.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case favoritegroup.FieldName:
+		return m.OldName(ctx)
+	}
+	return nil, fmt.Errorf("unknown FavoriteGroup field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *FavoriteGroupMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case favoritegroup.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case favoritegroup.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case favoritegroup.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	}
+	return fmt.Errorf("unknown FavoriteGroup field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *FavoriteGroupMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *FavoriteGroupMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *FavoriteGroupMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown FavoriteGroup numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *FavoriteGroupMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *FavoriteGroupMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *FavoriteGroupMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown FavoriteGroup nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *FavoriteGroupMutation) ResetField(name string) error {
+	switch name {
+	case favoritegroup.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case favoritegroup.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case favoritegroup.FieldName:
+		m.ResetName()
+		return nil
+	}
+	return fmt.Errorf("unknown FavoriteGroup field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *FavoriteGroupMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.favorites != nil {
+		edges = append(edges, favoritegroup.EdgeFavorites)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *FavoriteGroupMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case favoritegroup.EdgeFavorites:
+		ids := make([]ent.Value, 0, len(m.favorites))
+		for id := range m.favorites {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *FavoriteGroupMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.removedfavorites != nil {
+		edges = append(edges, favoritegroup.EdgeFavorites)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *FavoriteGroupMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case favoritegroup.EdgeFavorites:
+		ids := make([]ent.Value, 0, len(m.removedfavorites))
+		for id := range m.removedfavorites {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *FavoriteGroupMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedfavorites {
+		edges = append(edges, favoritegroup.EdgeFavorites)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *FavoriteGroupMutation) EdgeCleared(name string) bool {
+	switch name {
+	case favoritegroup.EdgeFavorites:
+		return m.clearedfavorites
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *FavoriteGroupMutation) ClearEdge(name string) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown FavoriteGroup unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *FavoriteGroupMutation) ResetEdge(name string) error {
+	switch name {
+	case favoritegroup.EdgeFavorites:
+		m.ResetFavorites()
+		return nil
+	}
+	return fmt.Errorf("unknown FavoriteGroup edge %s", name)
 }
 
 // FileMutation represents an operation that mutates the File nodes in the graph.
@@ -3130,6 +4254,9 @@ type MovieMutation struct {
 	watch_history        map[int]struct{}
 	removedwatch_history map[int]struct{}
 	clearedwatch_history bool
+	favorites            map[int]struct{}
+	removedfavorites     map[int]struct{}
+	clearedfavorites     bool
 	done                 bool
 	oldValue             func(context.Context) (*Movie, error)
 	predicates           []predicate.Movie
@@ -4346,6 +5473,60 @@ func (m *MovieMutation) ResetWatchHistory() {
 	m.removedwatch_history = nil
 }
 
+// AddFavoriteIDs adds the "favorites" edge to the Favorite entity by ids.
+func (m *MovieMutation) AddFavoriteIDs(ids ...int) {
+	if m.favorites == nil {
+		m.favorites = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.favorites[ids[i]] = struct{}{}
+	}
+}
+
+// ClearFavorites clears the "favorites" edge to the Favorite entity.
+func (m *MovieMutation) ClearFavorites() {
+	m.clearedfavorites = true
+}
+
+// FavoritesCleared reports if the "favorites" edge to the Favorite entity was cleared.
+func (m *MovieMutation) FavoritesCleared() bool {
+	return m.clearedfavorites
+}
+
+// RemoveFavoriteIDs removes the "favorites" edge to the Favorite entity by IDs.
+func (m *MovieMutation) RemoveFavoriteIDs(ids ...int) {
+	if m.removedfavorites == nil {
+		m.removedfavorites = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.favorites, ids[i])
+		m.removedfavorites[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedFavorites returns the removed IDs of the "favorites" edge to the Favorite entity.
+func (m *MovieMutation) RemovedFavoritesIDs() (ids []int) {
+	for id := range m.removedfavorites {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// FavoritesIDs returns the "favorites" edge IDs in the mutation.
+func (m *MovieMutation) FavoritesIDs() (ids []int) {
+	for id := range m.favorites {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetFavorites resets all changes to the "favorites" edge.
+func (m *MovieMutation) ResetFavorites() {
+	m.favorites = nil
+	m.clearedfavorites = false
+	m.removedfavorites = nil
+}
+
 // Where appends a list predicates to the MovieMutation builder.
 func (m *MovieMutation) Where(ps ...predicate.Movie) {
 	m.predicates = append(m.predicates, ps...)
@@ -4887,7 +6068,7 @@ func (m *MovieMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *MovieMutation) AddedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.actors != nil {
 		edges = append(edges, movie.EdgeActors)
 	}
@@ -4899,6 +6080,9 @@ func (m *MovieMutation) AddedEdges() []string {
 	}
 	if m.watch_history != nil {
 		edges = append(edges, movie.EdgeWatchHistory)
+	}
+	if m.favorites != nil {
+		edges = append(edges, movie.EdgeFavorites)
 	}
 	return edges
 }
@@ -4931,13 +6115,19 @@ func (m *MovieMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case movie.EdgeFavorites:
+		ids := make([]ent.Value, 0, len(m.favorites))
+		for id := range m.favorites {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MovieMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.removedactors != nil {
 		edges = append(edges, movie.EdgeActors)
 	}
@@ -4949,6 +6139,9 @@ func (m *MovieMutation) RemovedEdges() []string {
 	}
 	if m.removedwatch_history != nil {
 		edges = append(edges, movie.EdgeWatchHistory)
+	}
+	if m.removedfavorites != nil {
+		edges = append(edges, movie.EdgeFavorites)
 	}
 	return edges
 }
@@ -4981,13 +6174,19 @@ func (m *MovieMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case movie.EdgeFavorites:
+		ids := make([]ent.Value, 0, len(m.removedfavorites))
+		for id := range m.removedfavorites {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *MovieMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.clearedactors {
 		edges = append(edges, movie.EdgeActors)
 	}
@@ -4999,6 +6198,9 @@ func (m *MovieMutation) ClearedEdges() []string {
 	}
 	if m.clearedwatch_history {
 		edges = append(edges, movie.EdgeWatchHistory)
+	}
+	if m.clearedfavorites {
+		edges = append(edges, movie.EdgeFavorites)
 	}
 	return edges
 }
@@ -5015,6 +6217,8 @@ func (m *MovieMutation) EdgeCleared(name string) bool {
 		return m.clearedfiles
 	case movie.EdgeWatchHistory:
 		return m.clearedwatch_history
+	case movie.EdgeFavorites:
+		return m.clearedfavorites
 	}
 	return false
 }
@@ -5042,6 +6246,9 @@ func (m *MovieMutation) ResetEdge(name string) error {
 		return nil
 	case movie.EdgeWatchHistory:
 		m.ResetWatchHistory()
+		return nil
+	case movie.EdgeFavorites:
+		m.ResetFavorites()
 		return nil
 	}
 	return fmt.Errorf("unknown Movie edge %s", name)
@@ -6984,6 +8191,440 @@ func (m *TaskMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *TaskMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown Task edge %s", name)
+}
+
+// ViewedMovieMutation represents an operation that mutates the ViewedMovie nodes in the graph.
+type ViewedMovieMutation struct {
+	config
+	op            Op
+	typ           string
+	id            *int
+	created_at    *time.Time
+	updated_at    *time.Time
+	movie_id      *string
+	clearedFields map[string]struct{}
+	done          bool
+	oldValue      func(context.Context) (*ViewedMovie, error)
+	predicates    []predicate.ViewedMovie
+}
+
+var _ ent.Mutation = (*ViewedMovieMutation)(nil)
+
+// viewedmovieOption allows management of the mutation configuration using functional options.
+type viewedmovieOption func(*ViewedMovieMutation)
+
+// newViewedMovieMutation creates new mutation for the ViewedMovie entity.
+func newViewedMovieMutation(c config, op Op, opts ...viewedmovieOption) *ViewedMovieMutation {
+	m := &ViewedMovieMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeViewedMovie,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withViewedMovieID sets the ID field of the mutation.
+func withViewedMovieID(id int) viewedmovieOption {
+	return func(m *ViewedMovieMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ViewedMovie
+		)
+		m.oldValue = func(ctx context.Context) (*ViewedMovie, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ViewedMovie.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withViewedMovie sets the old ViewedMovie of the mutation.
+func withViewedMovie(node *ViewedMovie) viewedmovieOption {
+	return func(m *ViewedMovieMutation) {
+		m.oldValue = func(context.Context) (*ViewedMovie, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ViewedMovieMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ViewedMovieMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ViewedMovieMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ViewedMovieMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ViewedMovie.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ViewedMovieMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ViewedMovieMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ViewedMovie entity.
+// If the ViewedMovie object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ViewedMovieMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ViewedMovieMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ViewedMovieMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ViewedMovieMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ViewedMovie entity.
+// If the ViewedMovie object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ViewedMovieMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ViewedMovieMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetMovieID sets the "movie_id" field.
+func (m *ViewedMovieMutation) SetMovieID(s string) {
+	m.movie_id = &s
+}
+
+// MovieID returns the value of the "movie_id" field in the mutation.
+func (m *ViewedMovieMutation) MovieID() (r string, exists bool) {
+	v := m.movie_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMovieID returns the old "movie_id" field's value of the ViewedMovie entity.
+// If the ViewedMovie object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ViewedMovieMutation) OldMovieID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMovieID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMovieID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMovieID: %w", err)
+	}
+	return oldValue.MovieID, nil
+}
+
+// ResetMovieID resets all changes to the "movie_id" field.
+func (m *ViewedMovieMutation) ResetMovieID() {
+	m.movie_id = nil
+}
+
+// Where appends a list predicates to the ViewedMovieMutation builder.
+func (m *ViewedMovieMutation) Where(ps ...predicate.ViewedMovie) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ViewedMovieMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ViewedMovieMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ViewedMovie, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ViewedMovieMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ViewedMovieMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ViewedMovie).
+func (m *ViewedMovieMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ViewedMovieMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.created_at != nil {
+		fields = append(fields, viewedmovie.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, viewedmovie.FieldUpdatedAt)
+	}
+	if m.movie_id != nil {
+		fields = append(fields, viewedmovie.FieldMovieID)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ViewedMovieMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case viewedmovie.FieldCreatedAt:
+		return m.CreatedAt()
+	case viewedmovie.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case viewedmovie.FieldMovieID:
+		return m.MovieID()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ViewedMovieMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case viewedmovie.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case viewedmovie.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case viewedmovie.FieldMovieID:
+		return m.OldMovieID(ctx)
+	}
+	return nil, fmt.Errorf("unknown ViewedMovie field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ViewedMovieMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case viewedmovie.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case viewedmovie.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case viewedmovie.FieldMovieID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMovieID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ViewedMovie field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ViewedMovieMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ViewedMovieMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ViewedMovieMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown ViewedMovie numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ViewedMovieMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ViewedMovieMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ViewedMovieMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown ViewedMovie nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ViewedMovieMutation) ResetField(name string) error {
+	switch name {
+	case viewedmovie.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case viewedmovie.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case viewedmovie.FieldMovieID:
+		m.ResetMovieID()
+		return nil
+	}
+	return fmt.Errorf("unknown ViewedMovie field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ViewedMovieMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ViewedMovieMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ViewedMovieMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ViewedMovieMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ViewedMovieMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ViewedMovieMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ViewedMovieMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ViewedMovie unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ViewedMovieMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ViewedMovie edge %s", name)
 }
 
 // WatchHistoryMutation represents an operation that mutates the WatchHistory nodes in the graph.

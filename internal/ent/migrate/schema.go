@@ -25,6 +25,59 @@ var (
 		Columns:    ActorsColumns,
 		PrimaryKey: []*schema.Column{ActorsColumns[0]},
 	}
+	// FavoritesColumns holds the columns for the "favorites" table.
+	FavoritesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "group_id", Type: field.TypeInt},
+		{Name: "movie_id", Type: field.TypeInt},
+	}
+	// FavoritesTable holds the schema information for the "favorites" table.
+	FavoritesTable = &schema.Table{
+		Name:       "favorites",
+		Columns:    FavoritesColumns,
+		PrimaryKey: []*schema.Column{FavoritesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "favorites_favorite_groups_favorites",
+				Columns:    []*schema.Column{FavoritesColumns[3]},
+				RefColumns: []*schema.Column{FavoriteGroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "favorites_movies_favorites",
+				Columns:    []*schema.Column{FavoritesColumns[4]},
+				RefColumns: []*schema.Column{MoviesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "favorite_movie_id_group_id",
+				Unique:  true,
+				Columns: []*schema.Column{FavoritesColumns[4], FavoritesColumns[3]},
+			},
+			{
+				Name:    "favorite_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{FavoritesColumns[3]},
+			},
+		},
+	}
+	// FavoriteGroupsColumns holds the columns for the "favorite_groups" table.
+	FavoriteGroupsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString, Unique: true},
+	}
+	// FavoriteGroupsTable holds the schema information for the "favorite_groups" table.
+	FavoriteGroupsTable = &schema.Table{
+		Name:       "favorite_groups",
+		Columns:    FavoriteGroupsColumns,
+		PrimaryKey: []*schema.Column{FavoriteGroupsColumns[0]},
+	}
 	// FilesColumns holds the columns for the "files" table.
 	FilesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -187,6 +240,19 @@ var (
 			},
 		},
 	}
+	// ViewedMoviesColumns holds the columns for the "viewed_movies" table.
+	ViewedMoviesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "movie_id", Type: field.TypeString, Unique: true},
+	}
+	// ViewedMoviesTable holds the schema information for the "viewed_movies" table.
+	ViewedMoviesTable = &schema.Table{
+		Name:       "viewed_movies",
+		Columns:    ViewedMoviesColumns,
+		PrimaryKey: []*schema.Column{ViewedMoviesColumns[0]},
+	}
 	// WatchHistoriesColumns holds the columns for the "watch_histories" table.
 	WatchHistoriesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -284,12 +350,15 @@ var (
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		ActorsTable,
+		FavoritesTable,
+		FavoriteGroupsTable,
 		FilesTable,
 		MonitorsTable,
 		MoviesTable,
 		SettingsTable,
 		TagsTable,
 		TasksTable,
+		ViewedMoviesTable,
 		WatchHistoriesTable,
 		MovieActorsTable,
 		MovieTagsTable,
@@ -297,6 +366,8 @@ var (
 )
 
 func init() {
+	FavoritesTable.ForeignKeys[0].RefTable = FavoriteGroupsTable
+	FavoritesTable.ForeignKeys[1].RefTable = MoviesTable
 	FilesTable.ForeignKeys[0].RefTable = MoviesTable
 	WatchHistoriesTable.ForeignKeys[0].RefTable = MoviesTable
 	MovieActorsTable.ForeignKeys[0].RefTable = MoviesTable

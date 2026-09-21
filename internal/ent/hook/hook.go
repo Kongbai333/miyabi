@@ -21,6 +21,30 @@ func (f ActorFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ActorMutation", m)
 }
 
+// The FavoriteFunc type is an adapter to allow the use of ordinary
+// function as Favorite mutator.
+type FavoriteFunc func(context.Context, *ent.FavoriteMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f FavoriteFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.FavoriteMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.FavoriteMutation", m)
+}
+
+// The FavoriteGroupFunc type is an adapter to allow the use of ordinary
+// function as FavoriteGroup mutator.
+type FavoriteGroupFunc func(context.Context, *ent.FavoriteGroupMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f FavoriteGroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.FavoriteGroupMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.FavoriteGroupMutation", m)
+}
+
 // The FileFunc type is an adapter to allow the use of ordinary
 // function as File mutator.
 type FileFunc func(context.Context, *ent.FileMutation) (ent.Value, error)
@@ -91,6 +115,18 @@ func (f TaskFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error)
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.TaskMutation", m)
+}
+
+// The ViewedMovieFunc type is an adapter to allow the use of ordinary
+// function as ViewedMovie mutator.
+type ViewedMovieFunc func(context.Context, *ent.ViewedMovieMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ViewedMovieFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ViewedMovieMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ViewedMovieMutation", m)
 }
 
 // The WatchHistoryFunc type is an adapter to allow the use of ordinary

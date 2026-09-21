@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/ppxb/miyabi/internal/ent/actor"
+	"github.com/ppxb/miyabi/internal/ent/favorite"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/tag"
@@ -336,6 +337,21 @@ func (_c *MovieCreate) AddWatchHistory(v ...*WatchHistory) *MovieCreate {
 	return _c.AddWatchHistoryIDs(ids...)
 }
 
+// AddFavoriteIDs adds the "favorites" edge to the Favorite entity by IDs.
+func (_c *MovieCreate) AddFavoriteIDs(ids ...int) *MovieCreate {
+	_c.mutation.AddFavoriteIDs(ids...)
+	return _c
+}
+
+// AddFavorites adds the "favorites" edges to the Favorite entity.
+func (_c *MovieCreate) AddFavorites(v ...*Favorite) *MovieCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddFavoriteIDs(ids...)
+}
+
 // Mutation returns the MovieMutation object of the builder.
 func (_c *MovieCreate) Mutation() *MovieMutation {
 	return _c.mutation
@@ -590,6 +606,22 @@ func (_c *MovieCreate) createSpec() (*Movie, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(watchhistory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.FavoritesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   movie.FavoritesTable,
+			Columns: []string{movie.FavoritesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(favorite.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

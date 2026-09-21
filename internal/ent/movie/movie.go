@@ -61,6 +61,8 @@ const (
 	EdgeFiles = "files"
 	// EdgeWatchHistory holds the string denoting the watch_history edge name in mutations.
 	EdgeWatchHistory = "watch_history"
+	// EdgeFavorites holds the string denoting the favorites edge name in mutations.
+	EdgeFavorites = "favorites"
 	// Table holds the table name of the movie in the database.
 	Table = "movies"
 	// ActorsTable is the table that holds the actors relation/edge. The primary key declared below.
@@ -87,6 +89,13 @@ const (
 	WatchHistoryInverseTable = "watch_histories"
 	// WatchHistoryColumn is the table column denoting the watch_history relation/edge.
 	WatchHistoryColumn = "movie_id"
+	// FavoritesTable is the table that holds the favorites relation/edge.
+	FavoritesTable = "favorites"
+	// FavoritesInverseTable is the table name for the Favorite entity.
+	// It exists in this package in order to avoid circular dependency with the "favorite" package.
+	FavoritesInverseTable = "favorites"
+	// FavoritesColumn is the table column denoting the favorites relation/edge.
+	FavoritesColumn = "movie_id"
 )
 
 // Columns holds all SQL columns for movie fields.
@@ -329,6 +338,20 @@ func ByWatchHistory(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newWatchHistoryStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByFavoritesCount orders the results by favorites count.
+func ByFavoritesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newFavoritesStep(), opts...)
+	}
+}
+
+// ByFavorites orders the results by favorites terms.
+func ByFavorites(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newFavoritesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newActorsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -355,5 +378,12 @@ func newWatchHistoryStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(WatchHistoryInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, WatchHistoryTable, WatchHistoryColumn),
+	)
+}
+func newFavoritesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(FavoritesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, FavoritesTable, FavoritesColumn),
 	)
 }

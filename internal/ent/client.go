@@ -16,12 +16,15 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/ppxb/miyabi/internal/ent/actor"
+	"github.com/ppxb/miyabi/internal/ent/favorite"
+	"github.com/ppxb/miyabi/internal/ent/favoritegroup"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/monitor"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/ent/tag"
 	"github.com/ppxb/miyabi/internal/ent/task"
+	"github.com/ppxb/miyabi/internal/ent/viewedmovie"
 	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 )
 
@@ -32,6 +35,10 @@ type Client struct {
 	Schema *migrate.Schema
 	// Actor is the client for interacting with the Actor builders.
 	Actor *ActorClient
+	// Favorite is the client for interacting with the Favorite builders.
+	Favorite *FavoriteClient
+	// FavoriteGroup is the client for interacting with the FavoriteGroup builders.
+	FavoriteGroup *FavoriteGroupClient
 	// File is the client for interacting with the File builders.
 	File *FileClient
 	// Monitor is the client for interacting with the Monitor builders.
@@ -44,6 +51,8 @@ type Client struct {
 	Tag *TagClient
 	// Task is the client for interacting with the Task builders.
 	Task *TaskClient
+	// ViewedMovie is the client for interacting with the ViewedMovie builders.
+	ViewedMovie *ViewedMovieClient
 	// WatchHistory is the client for interacting with the WatchHistory builders.
 	WatchHistory *WatchHistoryClient
 }
@@ -58,12 +67,15 @@ func NewClient(opts ...Option) *Client {
 func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.Actor = NewActorClient(c.config)
+	c.Favorite = NewFavoriteClient(c.config)
+	c.FavoriteGroup = NewFavoriteGroupClient(c.config)
 	c.File = NewFileClient(c.config)
 	c.Monitor = NewMonitorClient(c.config)
 	c.Movie = NewMovieClient(c.config)
 	c.Setting = NewSettingClient(c.config)
 	c.Tag = NewTagClient(c.config)
 	c.Task = NewTaskClient(c.config)
+	c.ViewedMovie = NewViewedMovieClient(c.config)
 	c.WatchHistory = NewWatchHistoryClient(c.config)
 }
 
@@ -155,16 +167,19 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:          ctx,
-		config:       cfg,
-		Actor:        NewActorClient(cfg),
-		File:         NewFileClient(cfg),
-		Monitor:      NewMonitorClient(cfg),
-		Movie:        NewMovieClient(cfg),
-		Setting:      NewSettingClient(cfg),
-		Tag:          NewTagClient(cfg),
-		Task:         NewTaskClient(cfg),
-		WatchHistory: NewWatchHistoryClient(cfg),
+		ctx:           ctx,
+		config:        cfg,
+		Actor:         NewActorClient(cfg),
+		Favorite:      NewFavoriteClient(cfg),
+		FavoriteGroup: NewFavoriteGroupClient(cfg),
+		File:          NewFileClient(cfg),
+		Monitor:       NewMonitorClient(cfg),
+		Movie:         NewMovieClient(cfg),
+		Setting:       NewSettingClient(cfg),
+		Tag:           NewTagClient(cfg),
+		Task:          NewTaskClient(cfg),
+		ViewedMovie:   NewViewedMovieClient(cfg),
+		WatchHistory:  NewWatchHistoryClient(cfg),
 	}, nil
 }
 
@@ -182,16 +197,19 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:          ctx,
-		config:       cfg,
-		Actor:        NewActorClient(cfg),
-		File:         NewFileClient(cfg),
-		Monitor:      NewMonitorClient(cfg),
-		Movie:        NewMovieClient(cfg),
-		Setting:      NewSettingClient(cfg),
-		Tag:          NewTagClient(cfg),
-		Task:         NewTaskClient(cfg),
-		WatchHistory: NewWatchHistoryClient(cfg),
+		ctx:           ctx,
+		config:        cfg,
+		Actor:         NewActorClient(cfg),
+		Favorite:      NewFavoriteClient(cfg),
+		FavoriteGroup: NewFavoriteGroupClient(cfg),
+		File:          NewFileClient(cfg),
+		Monitor:       NewMonitorClient(cfg),
+		Movie:         NewMovieClient(cfg),
+		Setting:       NewSettingClient(cfg),
+		Tag:           NewTagClient(cfg),
+		Task:          NewTaskClient(cfg),
+		ViewedMovie:   NewViewedMovieClient(cfg),
+		WatchHistory:  NewWatchHistoryClient(cfg),
 	}, nil
 }
 
@@ -221,7 +239,8 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.Actor, c.File, c.Monitor, c.Movie, c.Setting, c.Tag, c.Task, c.WatchHistory,
+		c.Actor, c.Favorite, c.FavoriteGroup, c.File, c.Monitor, c.Movie, c.Setting,
+		c.Tag, c.Task, c.ViewedMovie, c.WatchHistory,
 	} {
 		n.Use(hooks...)
 	}
@@ -231,7 +250,8 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.Actor, c.File, c.Monitor, c.Movie, c.Setting, c.Tag, c.Task, c.WatchHistory,
+		c.Actor, c.Favorite, c.FavoriteGroup, c.File, c.Monitor, c.Movie, c.Setting,
+		c.Tag, c.Task, c.ViewedMovie, c.WatchHistory,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -242,6 +262,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 	switch m := m.(type) {
 	case *ActorMutation:
 		return c.Actor.mutate(ctx, m)
+	case *FavoriteMutation:
+		return c.Favorite.mutate(ctx, m)
+	case *FavoriteGroupMutation:
+		return c.FavoriteGroup.mutate(ctx, m)
 	case *FileMutation:
 		return c.File.mutate(ctx, m)
 	case *MonitorMutation:
@@ -254,6 +278,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Tag.mutate(ctx, m)
 	case *TaskMutation:
 		return c.Task.mutate(ctx, m)
+	case *ViewedMovieMutation:
+		return c.ViewedMovie.mutate(ctx, m)
 	case *WatchHistoryMutation:
 		return c.WatchHistory.mutate(ctx, m)
 	default:
@@ -407,6 +433,320 @@ func (c *ActorClient) mutate(ctx context.Context, m *ActorMutation) (Value, erro
 		return (&ActorDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Actor mutation op: %q", m.Op())
+	}
+}
+
+// FavoriteClient is a client for the Favorite schema.
+type FavoriteClient struct {
+	config
+}
+
+// NewFavoriteClient returns a client for the Favorite from the given config.
+func NewFavoriteClient(c config) *FavoriteClient {
+	return &FavoriteClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `favorite.Hooks(f(g(h())))`.
+func (c *FavoriteClient) Use(hooks ...Hook) {
+	c.hooks.Favorite = append(c.hooks.Favorite, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `favorite.Intercept(f(g(h())))`.
+func (c *FavoriteClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Favorite = append(c.inters.Favorite, interceptors...)
+}
+
+// Create returns a builder for creating a Favorite entity.
+func (c *FavoriteClient) Create() *FavoriteCreate {
+	mutation := newFavoriteMutation(c.config, OpCreate)
+	return &FavoriteCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Favorite entities.
+func (c *FavoriteClient) CreateBulk(builders ...*FavoriteCreate) *FavoriteCreateBulk {
+	return &FavoriteCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *FavoriteClient) MapCreateBulk(slice any, setFunc func(*FavoriteCreate, int)) *FavoriteCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &FavoriteCreateBulk{err: fmt.Errorf("calling to FavoriteClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*FavoriteCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &FavoriteCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Favorite.
+func (c *FavoriteClient) Update() *FavoriteUpdate {
+	mutation := newFavoriteMutation(c.config, OpUpdate)
+	return &FavoriteUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *FavoriteClient) UpdateOne(_m *Favorite) *FavoriteUpdateOne {
+	mutation := newFavoriteMutation(c.config, OpUpdateOne, withFavorite(_m))
+	return &FavoriteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *FavoriteClient) UpdateOneID(id int) *FavoriteUpdateOne {
+	mutation := newFavoriteMutation(c.config, OpUpdateOne, withFavoriteID(id))
+	return &FavoriteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Favorite.
+func (c *FavoriteClient) Delete() *FavoriteDelete {
+	mutation := newFavoriteMutation(c.config, OpDelete)
+	return &FavoriteDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *FavoriteClient) DeleteOne(_m *Favorite) *FavoriteDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *FavoriteClient) DeleteOneID(id int) *FavoriteDeleteOne {
+	builder := c.Delete().Where(favorite.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &FavoriteDeleteOne{builder}
+}
+
+// Query returns a query builder for Favorite.
+func (c *FavoriteClient) Query() *FavoriteQuery {
+	return &FavoriteQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeFavorite},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Favorite entity by its id.
+func (c *FavoriteClient) Get(ctx context.Context, id int) (*Favorite, error) {
+	return c.Query().Where(favorite.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *FavoriteClient) GetX(ctx context.Context, id int) *Favorite {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryMovie queries the movie edge of a Favorite.
+func (c *FavoriteClient) QueryMovie(_m *Favorite) *MovieQuery {
+	query := (&MovieClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(favorite.Table, favorite.FieldID, id),
+			sqlgraph.To(movie.Table, movie.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, favorite.MovieTable, favorite.MovieColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryGroup queries the group edge of a Favorite.
+func (c *FavoriteClient) QueryGroup(_m *Favorite) *FavoriteGroupQuery {
+	query := (&FavoriteGroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(favorite.Table, favorite.FieldID, id),
+			sqlgraph.To(favoritegroup.Table, favoritegroup.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, favorite.GroupTable, favorite.GroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *FavoriteClient) Hooks() []Hook {
+	return c.hooks.Favorite
+}
+
+// Interceptors returns the client interceptors.
+func (c *FavoriteClient) Interceptors() []Interceptor {
+	return c.inters.Favorite
+}
+
+func (c *FavoriteClient) mutate(ctx context.Context, m *FavoriteMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&FavoriteCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&FavoriteUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&FavoriteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&FavoriteDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Favorite mutation op: %q", m.Op())
+	}
+}
+
+// FavoriteGroupClient is a client for the FavoriteGroup schema.
+type FavoriteGroupClient struct {
+	config
+}
+
+// NewFavoriteGroupClient returns a client for the FavoriteGroup from the given config.
+func NewFavoriteGroupClient(c config) *FavoriteGroupClient {
+	return &FavoriteGroupClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `favoritegroup.Hooks(f(g(h())))`.
+func (c *FavoriteGroupClient) Use(hooks ...Hook) {
+	c.hooks.FavoriteGroup = append(c.hooks.FavoriteGroup, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `favoritegroup.Intercept(f(g(h())))`.
+func (c *FavoriteGroupClient) Intercept(interceptors ...Interceptor) {
+	c.inters.FavoriteGroup = append(c.inters.FavoriteGroup, interceptors...)
+}
+
+// Create returns a builder for creating a FavoriteGroup entity.
+func (c *FavoriteGroupClient) Create() *FavoriteGroupCreate {
+	mutation := newFavoriteGroupMutation(c.config, OpCreate)
+	return &FavoriteGroupCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of FavoriteGroup entities.
+func (c *FavoriteGroupClient) CreateBulk(builders ...*FavoriteGroupCreate) *FavoriteGroupCreateBulk {
+	return &FavoriteGroupCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *FavoriteGroupClient) MapCreateBulk(slice any, setFunc func(*FavoriteGroupCreate, int)) *FavoriteGroupCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &FavoriteGroupCreateBulk{err: fmt.Errorf("calling to FavoriteGroupClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*FavoriteGroupCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &FavoriteGroupCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for FavoriteGroup.
+func (c *FavoriteGroupClient) Update() *FavoriteGroupUpdate {
+	mutation := newFavoriteGroupMutation(c.config, OpUpdate)
+	return &FavoriteGroupUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *FavoriteGroupClient) UpdateOne(_m *FavoriteGroup) *FavoriteGroupUpdateOne {
+	mutation := newFavoriteGroupMutation(c.config, OpUpdateOne, withFavoriteGroup(_m))
+	return &FavoriteGroupUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *FavoriteGroupClient) UpdateOneID(id int) *FavoriteGroupUpdateOne {
+	mutation := newFavoriteGroupMutation(c.config, OpUpdateOne, withFavoriteGroupID(id))
+	return &FavoriteGroupUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for FavoriteGroup.
+func (c *FavoriteGroupClient) Delete() *FavoriteGroupDelete {
+	mutation := newFavoriteGroupMutation(c.config, OpDelete)
+	return &FavoriteGroupDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *FavoriteGroupClient) DeleteOne(_m *FavoriteGroup) *FavoriteGroupDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *FavoriteGroupClient) DeleteOneID(id int) *FavoriteGroupDeleteOne {
+	builder := c.Delete().Where(favoritegroup.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &FavoriteGroupDeleteOne{builder}
+}
+
+// Query returns a query builder for FavoriteGroup.
+func (c *FavoriteGroupClient) Query() *FavoriteGroupQuery {
+	return &FavoriteGroupQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeFavoriteGroup},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a FavoriteGroup entity by its id.
+func (c *FavoriteGroupClient) Get(ctx context.Context, id int) (*FavoriteGroup, error) {
+	return c.Query().Where(favoritegroup.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *FavoriteGroupClient) GetX(ctx context.Context, id int) *FavoriteGroup {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryFavorites queries the favorites edge of a FavoriteGroup.
+func (c *FavoriteGroupClient) QueryFavorites(_m *FavoriteGroup) *FavoriteQuery {
+	query := (&FavoriteClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(favoritegroup.Table, favoritegroup.FieldID, id),
+			sqlgraph.To(favorite.Table, favorite.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, favoritegroup.FavoritesTable, favoritegroup.FavoritesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *FavoriteGroupClient) Hooks() []Hook {
+	return c.hooks.FavoriteGroup
+}
+
+// Interceptors returns the client interceptors.
+func (c *FavoriteGroupClient) Interceptors() []Interceptor {
+	return c.inters.FavoriteGroup
+}
+
+func (c *FavoriteGroupClient) mutate(ctx context.Context, m *FavoriteGroupMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&FavoriteGroupCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&FavoriteGroupUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&FavoriteGroupUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&FavoriteGroupDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown FavoriteGroup mutation op: %q", m.Op())
 	}
 }
 
@@ -864,6 +1204,22 @@ func (c *MovieClient) QueryWatchHistory(_m *Movie) *WatchHistoryQuery {
 	return query
 }
 
+// QueryFavorites queries the favorites edge of a Movie.
+func (c *MovieClient) QueryFavorites(_m *Movie) *FavoriteQuery {
+	query := (&FavoriteClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(movie.Table, movie.FieldID, id),
+			sqlgraph.To(favorite.Table, favorite.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, movie.FavoritesTable, movie.FavoritesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *MovieClient) Hooks() []Hook {
 	return c.hooks.Movie
@@ -1304,6 +1660,139 @@ func (c *TaskClient) mutate(ctx context.Context, m *TaskMutation) (Value, error)
 	}
 }
 
+// ViewedMovieClient is a client for the ViewedMovie schema.
+type ViewedMovieClient struct {
+	config
+}
+
+// NewViewedMovieClient returns a client for the ViewedMovie from the given config.
+func NewViewedMovieClient(c config) *ViewedMovieClient {
+	return &ViewedMovieClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `viewedmovie.Hooks(f(g(h())))`.
+func (c *ViewedMovieClient) Use(hooks ...Hook) {
+	c.hooks.ViewedMovie = append(c.hooks.ViewedMovie, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `viewedmovie.Intercept(f(g(h())))`.
+func (c *ViewedMovieClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ViewedMovie = append(c.inters.ViewedMovie, interceptors...)
+}
+
+// Create returns a builder for creating a ViewedMovie entity.
+func (c *ViewedMovieClient) Create() *ViewedMovieCreate {
+	mutation := newViewedMovieMutation(c.config, OpCreate)
+	return &ViewedMovieCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ViewedMovie entities.
+func (c *ViewedMovieClient) CreateBulk(builders ...*ViewedMovieCreate) *ViewedMovieCreateBulk {
+	return &ViewedMovieCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ViewedMovieClient) MapCreateBulk(slice any, setFunc func(*ViewedMovieCreate, int)) *ViewedMovieCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ViewedMovieCreateBulk{err: fmt.Errorf("calling to ViewedMovieClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ViewedMovieCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ViewedMovieCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ViewedMovie.
+func (c *ViewedMovieClient) Update() *ViewedMovieUpdate {
+	mutation := newViewedMovieMutation(c.config, OpUpdate)
+	return &ViewedMovieUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ViewedMovieClient) UpdateOne(_m *ViewedMovie) *ViewedMovieUpdateOne {
+	mutation := newViewedMovieMutation(c.config, OpUpdateOne, withViewedMovie(_m))
+	return &ViewedMovieUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ViewedMovieClient) UpdateOneID(id int) *ViewedMovieUpdateOne {
+	mutation := newViewedMovieMutation(c.config, OpUpdateOne, withViewedMovieID(id))
+	return &ViewedMovieUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ViewedMovie.
+func (c *ViewedMovieClient) Delete() *ViewedMovieDelete {
+	mutation := newViewedMovieMutation(c.config, OpDelete)
+	return &ViewedMovieDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ViewedMovieClient) DeleteOne(_m *ViewedMovie) *ViewedMovieDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ViewedMovieClient) DeleteOneID(id int) *ViewedMovieDeleteOne {
+	builder := c.Delete().Where(viewedmovie.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ViewedMovieDeleteOne{builder}
+}
+
+// Query returns a query builder for ViewedMovie.
+func (c *ViewedMovieClient) Query() *ViewedMovieQuery {
+	return &ViewedMovieQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeViewedMovie},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ViewedMovie entity by its id.
+func (c *ViewedMovieClient) Get(ctx context.Context, id int) (*ViewedMovie, error) {
+	return c.Query().Where(viewedmovie.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ViewedMovieClient) GetX(ctx context.Context, id int) *ViewedMovie {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *ViewedMovieClient) Hooks() []Hook {
+	return c.hooks.ViewedMovie
+}
+
+// Interceptors returns the client interceptors.
+func (c *ViewedMovieClient) Interceptors() []Interceptor {
+	return c.inters.ViewedMovie
+}
+
+func (c *ViewedMovieClient) mutate(ctx context.Context, m *ViewedMovieMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ViewedMovieCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ViewedMovieUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ViewedMovieUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ViewedMovieDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ViewedMovie mutation op: %q", m.Op())
+	}
+}
+
 // WatchHistoryClient is a client for the WatchHistory schema.
 type WatchHistoryClient struct {
 	config
@@ -1456,9 +1945,11 @@ func (c *WatchHistoryClient) mutate(ctx context.Context, m *WatchHistoryMutation
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		Actor, File, Monitor, Movie, Setting, Tag, Task, WatchHistory []ent.Hook
+		Actor, Favorite, FavoriteGroup, File, Monitor, Movie, Setting, Tag, Task,
+		ViewedMovie, WatchHistory []ent.Hook
 	}
 	inters struct {
-		Actor, File, Monitor, Movie, Setting, Tag, Task, WatchHistory []ent.Interceptor
+		Actor, Favorite, FavoriteGroup, File, Monitor, Movie, Setting, Tag, Task,
+		ViewedMovie, WatchHistory []ent.Interceptor
 	}
 )

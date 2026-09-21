@@ -14,6 +14,10 @@ type Tx struct {
 	config
 	// Actor is the client for interacting with the Actor builders.
 	Actor *ActorClient
+	// Favorite is the client for interacting with the Favorite builders.
+	Favorite *FavoriteClient
+	// FavoriteGroup is the client for interacting with the FavoriteGroup builders.
+	FavoriteGroup *FavoriteGroupClient
 	// File is the client for interacting with the File builders.
 	File *FileClient
 	// Monitor is the client for interacting with the Monitor builders.
@@ -26,6 +30,8 @@ type Tx struct {
 	Tag *TagClient
 	// Task is the client for interacting with the Task builders.
 	Task *TaskClient
+	// ViewedMovie is the client for interacting with the ViewedMovie builders.
+	ViewedMovie *ViewedMovieClient
 	// WatchHistory is the client for interacting with the WatchHistory builders.
 	WatchHistory *WatchHistoryClient
 
@@ -160,12 +166,15 @@ func (tx *Tx) Client() *Client {
 
 func (tx *Tx) init() {
 	tx.Actor = NewActorClient(tx.config)
+	tx.Favorite = NewFavoriteClient(tx.config)
+	tx.FavoriteGroup = NewFavoriteGroupClient(tx.config)
 	tx.File = NewFileClient(tx.config)
 	tx.Monitor = NewMonitorClient(tx.config)
 	tx.Movie = NewMovieClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
 	tx.Tag = NewTagClient(tx.config)
 	tx.Task = NewTaskClient(tx.config)
+	tx.ViewedMovie = NewViewedMovieClient(tx.config)
 	tx.WatchHistory = NewWatchHistoryClient(tx.config)
 }
 

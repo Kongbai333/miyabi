@@ -1297,6 +1297,29 @@ func HasWatchHistoryWith(preds ...predicate.WatchHistory) predicate.Movie {
 	})
 }
 
+// HasFavorites applies the HasEdge predicate on the "favorites" edge.
+func HasFavorites() predicate.Movie {
+	return predicate.Movie(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, FavoritesTable, FavoritesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasFavoritesWith applies the HasEdge predicate on the "favorites" edge with a given conditions (other predicates).
+func HasFavoritesWith(preds ...predicate.Favorite) predicate.Movie {
+	return predicate.Movie(func(s *sql.Selector) {
+		step := newFavoritesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Movie) predicate.Movie {
 	return predicate.Movie(sql.AndPredicates(predicates...))

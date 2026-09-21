@@ -72,9 +72,11 @@ type MovieEdges struct {
 	Files []*File `json:"files,omitempty"`
 	// WatchHistory holds the value of the watch_history edge.
 	WatchHistory []*WatchHistory `json:"watch_history,omitempty"`
+	// Favorites holds the value of the favorites edge.
+	Favorites []*Favorite `json:"favorites,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [5]bool
 }
 
 // ActorsOrErr returns the Actors value or an error if the edge
@@ -111,6 +113,15 @@ func (e MovieEdges) WatchHistoryOrErr() ([]*WatchHistory, error) {
 		return e.WatchHistory, nil
 	}
 	return nil, &NotLoadedError{edge: "watch_history"}
+}
+
+// FavoritesOrErr returns the Favorites value or an error if the edge
+// was not loaded in eager-loading.
+func (e MovieEdges) FavoritesOrErr() ([]*Favorite, error) {
+	if e.loadedTypes[4] {
+		return e.Favorites, nil
+	}
+	return nil, &NotLoadedError{edge: "favorites"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -310,6 +321,11 @@ func (_m *Movie) QueryFiles() *FileQuery {
 // QueryWatchHistory queries the "watch_history" edge of the Movie entity.
 func (_m *Movie) QueryWatchHistory() *WatchHistoryQuery {
 	return NewMovieClient(_m.config).QueryWatchHistory(_m)
+}
+
+// QueryFavorites queries the "favorites" edge of the Movie entity.
+func (_m *Movie) QueryFavorites() *FavoriteQuery {
+	return NewMovieClient(_m.config).QueryFavorites(_m)
 }
 
 // Update returns a builder for updating this Movie.

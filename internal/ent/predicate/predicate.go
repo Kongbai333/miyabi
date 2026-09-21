@@ -9,6 +9,12 @@ import (
 // Actor is the predicate function for actor builders.
 type Actor func(*sql.Selector)
 
+// Favorite is the predicate function for favorite builders.
+type Favorite func(*sql.Selector)
+
+// FavoriteGroup is the predicate function for favoritegroup builders.
+type FavoriteGroup func(*sql.Selector)
+
 // File is the predicate function for file builders.
 type File func(*sql.Selector)
 
@@ -26,6 +32,9 @@ type Tag func(*sql.Selector)
 
 // Task is the predicate function for task builders.
 type Task func(*sql.Selector)
+
+// ViewedMovie is the predicate function for viewedmovie builders.
+type ViewedMovie func(*sql.Selector)
 
 // WatchHistory is the predicate function for watchhistory builders.
 type WatchHistory func(*sql.Selector)

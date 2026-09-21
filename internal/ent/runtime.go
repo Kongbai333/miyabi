@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/ppxb/miyabi/internal/ent/actor"
+	"github.com/ppxb/miyabi/internal/ent/favorite"
+	"github.com/ppxb/miyabi/internal/ent/favoritegroup"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/monitor"
 	"github.com/ppxb/miyabi/internal/ent/movie"
@@ -14,6 +16,7 @@ import (
 	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/ent/tag"
 	"github.com/ppxb/miyabi/internal/ent/task"
+	"github.com/ppxb/miyabi/internal/ent/viewedmovie"
 	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 )
 
@@ -44,6 +47,48 @@ func init() {
 	actorDescName := actorFields[1].Descriptor()
 	// actor.NameValidator is a validator for the "name" field. It is called by the builders before save.
 	actor.NameValidator = actorDescName.Validators[0].(func(string) error)
+	favoriteMixin := schema.Favorite{}.Mixin()
+	favoriteMixinFields0 := favoriteMixin[0].Fields()
+	_ = favoriteMixinFields0
+	favoriteFields := schema.Favorite{}.Fields()
+	_ = favoriteFields
+	// favoriteDescCreatedAt is the schema descriptor for created_at field.
+	favoriteDescCreatedAt := favoriteMixinFields0[0].Descriptor()
+	// favorite.DefaultCreatedAt holds the default value on creation for the created_at field.
+	favorite.DefaultCreatedAt = favoriteDescCreatedAt.Default.(func() time.Time)
+	// favoriteDescUpdatedAt is the schema descriptor for updated_at field.
+	favoriteDescUpdatedAt := favoriteMixinFields0[1].Descriptor()
+	// favorite.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	favorite.DefaultUpdatedAt = favoriteDescUpdatedAt.Default.(func() time.Time)
+	// favorite.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	favorite.UpdateDefaultUpdatedAt = favoriteDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// favoriteDescMovieID is the schema descriptor for movie_id field.
+	favoriteDescMovieID := favoriteFields[0].Descriptor()
+	// favorite.MovieIDValidator is a validator for the "movie_id" field. It is called by the builders before save.
+	favorite.MovieIDValidator = favoriteDescMovieID.Validators[0].(func(int) error)
+	// favoriteDescGroupID is the schema descriptor for group_id field.
+	favoriteDescGroupID := favoriteFields[1].Descriptor()
+	// favorite.GroupIDValidator is a validator for the "group_id" field. It is called by the builders before save.
+	favorite.GroupIDValidator = favoriteDescGroupID.Validators[0].(func(int) error)
+	favoritegroupMixin := schema.FavoriteGroup{}.Mixin()
+	favoritegroupMixinFields0 := favoritegroupMixin[0].Fields()
+	_ = favoritegroupMixinFields0
+	favoritegroupFields := schema.FavoriteGroup{}.Fields()
+	_ = favoritegroupFields
+	// favoritegroupDescCreatedAt is the schema descriptor for created_at field.
+	favoritegroupDescCreatedAt := favoritegroupMixinFields0[0].Descriptor()
+	// favoritegroup.DefaultCreatedAt holds the default value on creation for the created_at field.
+	favoritegroup.DefaultCreatedAt = favoritegroupDescCreatedAt.Default.(func() time.Time)
+	// favoritegroupDescUpdatedAt is the schema descriptor for updated_at field.
+	favoritegroupDescUpdatedAt := favoritegroupMixinFields0[1].Descriptor()
+	// favoritegroup.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	favoritegroup.DefaultUpdatedAt = favoritegroupDescUpdatedAt.Default.(func() time.Time)
+	// favoritegroup.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	favoritegroup.UpdateDefaultUpdatedAt = favoritegroupDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// favoritegroupDescName is the schema descriptor for name field.
+	favoritegroupDescName := favoritegroupFields[0].Descriptor()
+	// favoritegroup.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	favoritegroup.NameValidator = favoritegroupDescName.Validators[0].(func(string) error)
 	fileMixin := schema.File{}.Mixin()
 	fileMixinFields0 := fileMixin[0].Fields()
 	_ = fileMixinFields0
@@ -250,6 +295,25 @@ func init() {
 	task.DefaultProgress = taskDescProgress.Default.(int)
 	// task.ProgressValidator is a validator for the "progress" field. It is called by the builders before save.
 	task.ProgressValidator = taskDescProgress.Validators[0].(func(int) error)
+	viewedmovieMixin := schema.ViewedMovie{}.Mixin()
+	viewedmovieMixinFields0 := viewedmovieMixin[0].Fields()
+	_ = viewedmovieMixinFields0
+	viewedmovieFields := schema.ViewedMovie{}.Fields()
+	_ = viewedmovieFields
+	// viewedmovieDescCreatedAt is the schema descriptor for created_at field.
+	viewedmovieDescCreatedAt := viewedmovieMixinFields0[0].Descriptor()
+	// viewedmovie.DefaultCreatedAt holds the default value on creation for the created_at field.
+	viewedmovie.DefaultCreatedAt = viewedmovieDescCreatedAt.Default.(func() time.Time)
+	// viewedmovieDescUpdatedAt is the schema descriptor for updated_at field.
+	viewedmovieDescUpdatedAt := viewedmovieMixinFields0[1].Descriptor()
+	// viewedmovie.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	viewedmovie.DefaultUpdatedAt = viewedmovieDescUpdatedAt.Default.(func() time.Time)
+	// viewedmovie.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	viewedmovie.UpdateDefaultUpdatedAt = viewedmovieDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// viewedmovieDescMovieID is the schema descriptor for movie_id field.
+	viewedmovieDescMovieID := viewedmovieFields[0].Descriptor()
+	// viewedmovie.MovieIDValidator is a validator for the "movie_id" field. It is called by the builders before save.
+	viewedmovie.MovieIDValidator = viewedmovieDescMovieID.Validators[0].(func(string) error)
 	watchhistoryFields := schema.WatchHistory{}.Fields()
 	_ = watchhistoryFields
 	// watchhistoryDescAccountID is the schema descriptor for account_id field.

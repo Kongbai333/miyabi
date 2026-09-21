@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/ppxb/miyabi/internal/ent/actor"
+	"github.com/ppxb/miyabi/internal/ent/favorite"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/predicate"
@@ -421,6 +422,21 @@ func (_u *MovieUpdate) AddWatchHistory(v ...*WatchHistory) *MovieUpdate {
 	return _u.AddWatchHistoryIDs(ids...)
 }
 
+// AddFavoriteIDs adds the "favorites" edge to the Favorite entity by IDs.
+func (_u *MovieUpdate) AddFavoriteIDs(ids ...int) *MovieUpdate {
+	_u.mutation.AddFavoriteIDs(ids...)
+	return _u
+}
+
+// AddFavorites adds the "favorites" edges to the Favorite entity.
+func (_u *MovieUpdate) AddFavorites(v ...*Favorite) *MovieUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddFavoriteIDs(ids...)
+}
+
 // Mutation returns the MovieMutation object of the builder.
 func (_u *MovieUpdate) Mutation() *MovieMutation {
 	return _u.mutation
@@ -508,6 +524,27 @@ func (_u *MovieUpdate) RemoveWatchHistory(v ...*WatchHistory) *MovieUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveWatchHistoryIDs(ids...)
+}
+
+// ClearFavorites clears all "favorites" edges to the Favorite entity.
+func (_u *MovieUpdate) ClearFavorites() *MovieUpdate {
+	_u.mutation.ClearFavorites()
+	return _u
+}
+
+// RemoveFavoriteIDs removes the "favorites" edge to Favorite entities by IDs.
+func (_u *MovieUpdate) RemoveFavoriteIDs(ids ...int) *MovieUpdate {
+	_u.mutation.RemoveFavoriteIDs(ids...)
+	return _u
+}
+
+// RemoveFavorites removes "favorites" edges to Favorite entities.
+func (_u *MovieUpdate) RemoveFavorites(v ...*Favorite) *MovieUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveFavoriteIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -847,6 +884,51 @@ func (_u *MovieUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(watchhistory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.FavoritesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   movie.FavoritesTable,
+			Columns: []string{movie.FavoritesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(favorite.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedFavoritesIDs(); len(nodes) > 0 && !_u.mutation.FavoritesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   movie.FavoritesTable,
+			Columns: []string{movie.FavoritesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(favorite.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.FavoritesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   movie.FavoritesTable,
+			Columns: []string{movie.FavoritesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(favorite.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -1262,6 +1344,21 @@ func (_u *MovieUpdateOne) AddWatchHistory(v ...*WatchHistory) *MovieUpdateOne {
 	return _u.AddWatchHistoryIDs(ids...)
 }
 
+// AddFavoriteIDs adds the "favorites" edge to the Favorite entity by IDs.
+func (_u *MovieUpdateOne) AddFavoriteIDs(ids ...int) *MovieUpdateOne {
+	_u.mutation.AddFavoriteIDs(ids...)
+	return _u
+}
+
+// AddFavorites adds the "favorites" edges to the Favorite entity.
+func (_u *MovieUpdateOne) AddFavorites(v ...*Favorite) *MovieUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddFavoriteIDs(ids...)
+}
+
 // Mutation returns the MovieMutation object of the builder.
 func (_u *MovieUpdateOne) Mutation() *MovieMutation {
 	return _u.mutation
@@ -1349,6 +1446,27 @@ func (_u *MovieUpdateOne) RemoveWatchHistory(v ...*WatchHistory) *MovieUpdateOne
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveWatchHistoryIDs(ids...)
+}
+
+// ClearFavorites clears all "favorites" edges to the Favorite entity.
+func (_u *MovieUpdateOne) ClearFavorites() *MovieUpdateOne {
+	_u.mutation.ClearFavorites()
+	return _u
+}
+
+// RemoveFavoriteIDs removes the "favorites" edge to Favorite entities by IDs.
+func (_u *MovieUpdateOne) RemoveFavoriteIDs(ids ...int) *MovieUpdateOne {
+	_u.mutation.RemoveFavoriteIDs(ids...)
+	return _u
+}
+
+// RemoveFavorites removes "favorites" edges to Favorite entities.
+func (_u *MovieUpdateOne) RemoveFavorites(v ...*Favorite) *MovieUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveFavoriteIDs(ids...)
 }
 
 // Where appends a list predicates to the MovieUpdate builder.
@@ -1718,6 +1836,51 @@ func (_u *MovieUpdateOne) sqlSave(ctx context.Context) (_node *Movie, err error)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(watchhistory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.FavoritesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   movie.FavoritesTable,
+			Columns: []string{movie.FavoritesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(favorite.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedFavoritesIDs(); len(nodes) > 0 && !_u.mutation.FavoritesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   movie.FavoritesTable,
+			Columns: []string{movie.FavoritesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(favorite.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.FavoritesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   movie.FavoritesTable,
+			Columns: []string{movie.FavoritesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(favorite.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
