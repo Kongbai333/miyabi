@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useClearCache, useDataInfo } from '@/api/data'
+import { usePanAccount } from '@/api/pan'
+import { useClearWatchHistory } from '@/api/watch-history'
 import { InlineError } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,13 +25,28 @@ const numberFormat = new Intl.NumberFormat('zh-CN')
 export function DataSection() {
   const info = useDataInfo()
   const clearCache = useClearCache()
+  const account = usePanAccount()
+  const clearHistory = useClearWatchHistory()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const cache = info.data?.cache
   const busy = info.isFetching || clearCache.isPending
+  // Clearing history is scoped to the mounted directory, so the button needs
+  // the same source the library is reading from.
+  const scope = {
+    account_id: account.data?.account?.id ?? '',
+    directory_id: account.data?.directory?.id ?? ''
+  }
+  const historyReady = scope.account_id !== '' && scope.directory_id !== ''
 
   function openConfirmation() {
     clearCache.reset()
     setConfirmOpen(true)
+  }
+
+  function openHistoryConfirmation() {
+    clearHistory.reset()
+    setHistoryOpen(true)
   }
 
   function clearUnusedCache() {
@@ -37,6 +54,15 @@ export function DataSection() {
       onSuccess: () => {
         setConfirmOpen(false)
         toast.success('未使用的图片缓存已清理')
+      }
+    })
+  }
+
+  function clearWatchHistory() {
+    clearHistory.mutate(scope, {
+      onSuccess: ({ removed }) => {
+        setHistoryOpen(false)
+        toast.success(`已清除 ${numberFormat.format(removed)} 条观看记录`)
       }
     })
   }
@@ -93,6 +119,21 @@ export function DataSection() {
           清理所有缓存
         </Button>
       </SettingRow>
+      <SettingRow
+        title="观看记录"
+        description="清除已保存的播放进度。影片、已观看标记和 115 网盘文件会保留。"
+      >
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={!historyReady || clearHistory.isPending}
+          onClick={openHistoryConfirmation}
+        >
+          {clearHistory.isPending ? <LoaderCircleIcon className="animate-spin" /> : <Trash2Icon />}
+          清除观看记录
+        </Button>
+      </SettingRow>
       {info.isError ? (
         <InlineError onRetry={() => void info.refetch()} retrying={info.isFetching}>
           无法读取数据与缓存统计，请稍后重试。
@@ -133,6 +174,45 @@ export function DataSection() {
                 <Trash2Icon />
               )}
               确认清理
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={historyOpen}
+        onOpenChange={open => {
+          if (!clearHistory.isPending) setHistoryOpen(open)
+        }}
+      >
+        <DialogContent showCloseButton={!clearHistory.isPending}>
+          <DialogHeader>
+            <DialogTitle>清除观看记录？</DialogTitle>
+            <DialogDescription>
+              清除当前媒体目录的全部播放进度？媒体库中的影片和已观看标记会保留。
+            </DialogDescription>
+          </DialogHeader>
+          {clearHistory.error ? <InlineError>{clearHistory.error.message}</InlineError> : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={clearHistory.isPending}
+              onClick={() => setHistoryOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={clearHistory.isPending}
+              onClick={clearWatchHistory}
+            >
+              {clearHistory.isPending ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : (
+                <Trash2Icon />
+              )}
+              确认清除
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/file"
@@ -30,6 +31,7 @@ type LibraryMovie struct {
 	ReleaseDate      string             `json:"release_date,omitempty"`
 	Duration         int                `json:"duration"`
 	Rating           float64            `json:"rating"`
+	Size             int64              `json:"size"`
 	Director         *LibraryEntity     `json:"director,omitempty"`
 	Maker            *LibraryEntity     `json:"maker,omitempty"`
 	Series           *LibraryEntity     `json:"series,omitempty"`
@@ -38,6 +40,15 @@ type LibraryMovie struct {
 	ScrapeStatus     movie.ScrapeStatus `json:"scrape_status"`
 	Watched          bool               `json:"watched"`
 	FavoriteGroupIDs []int              `json:"favorite_group_ids"`
+	// Progress is absent until the movie has actually been played, so the card
+	// can tell "opened once" apart from "watched half of it".
+	Progress *LibraryProgress `json:"progress,omitempty"`
+}
+
+// LibraryProgress is the saved playback position within the mounted source.
+type LibraryProgress struct {
+	Position float64 `json:"position"`
+	Duration float64 `json:"duration"`
 }
 
 type LibraryTag struct {
@@ -114,13 +125,13 @@ func (service *LibraryService) Movies(ctx context.Context, page, limit int, filt
 	if result.Total == 0 {
 		return result, nil
 	}
-	records, err := service.database.Movie.Query().Where(movieScope).
+	query := filter.order(*source, service.database.Movie.Query().Where(movieScope))
+	records, err := query.
 		Select(movie.FieldID, movie.FieldCode, movie.FieldTitle, movie.FieldJavdbID, movie.FieldCover, movie.FieldPoster,
 			movie.FieldFanarts, movie.FieldReleaseDate, movie.FieldDuration, movie.FieldRating,
 			movie.FieldDirectorID, movie.FieldDirectorName, movie.FieldMakerID, movie.FieldMakerName,
 			movie.FieldSeriesID, movie.FieldSeriesName,
 			movie.FieldScrapeStatus, movie.FieldWatched).
-		Order(ent.Desc(movie.FieldCreatedAt), ent.Desc(movie.FieldID)).
 		Offset((page - 1) * limit).Limit(limit).
 		WithActors(func(query *ent.ActorQuery) {
 			query.Select(actor.FieldID, actor.FieldJavdbID, actor.FieldName).Order(ent.Asc(actor.FieldName), ent.Asc(actor.FieldID))
@@ -140,17 +151,25 @@ func (service *LibraryService) Movies(ctx context.Context, page, limit int, filt
 	if err != nil {
 		return result, err
 	}
+	progress, err := service.watchProgress(ctx, *source, movieIDs)
+	if err != nil {
+		return result, err
+	}
+	sizes, err := service.movieFileSizes(ctx, *source, movieIDs)
+	if err != nil {
+		return result, err
+	}
 
 	for _, record := range records {
 		item := LibraryMovie{
 			ID: record.ID, Code: record.Code, Title: record.Title,
 			JavDBID: record.JavdbID, Cover: record.Cover, Poster: record.Poster,
-			Duration: valueOrZero(record.Duration), Rating: valueOrZero(record.Rating),
+			Duration: valueOrZero(record.Duration), Rating: valueOrZero(record.Rating), Size: sizes[record.ID],
 			Director: libraryEntity(record.DirectorID, record.DirectorName),
 			Maker:    libraryEntity(record.MakerID, record.MakerName), Series: libraryEntity(record.SeriesID, record.SeriesName),
 			Actors: make([]LibraryEntity, 0, len(record.Edges.Actors)),
 			Tags:   make([]LibraryTag, 0, len(record.Edges.Tags)), ScrapeStatus: record.ScrapeStatus, Watched: record.Watched,
-			FavoriteGroupIDs: valueOrEmpty(favorites[record.ID]),
+			FavoriteGroupIDs: valueOrEmpty(favorites[record.ID]), Progress: progress[record.ID],
 		}
 		if record.ReleaseDate != nil {
 			item.ReleaseDate = record.ReleaseDate.Format(time.DateOnly)
@@ -175,4 +194,31 @@ func libraryEntity(id, name *string) *LibraryEntity {
 		return nil
 	}
 	return &LibraryEntity{ID: valueOrZero(id), Name: *name}
+}
+
+// movieFileSizes returns the total size of each movie's video files in the
+// mounted source. A movie split into parts reports the sum, which is what the
+// card shows. One grouped query per page keeps the list independent of N+1.
+func (service *LibraryService) movieFileSizes(ctx context.Context, source LibrarySource, movieIDs []int) (map[int]int64, error) {
+	result := make(map[int]int64, len(movieIDs))
+	if len(movieIDs) == 0 {
+		return result, nil
+	}
+	rows := []struct {
+		MovieID int   `json:"movie_files"`
+		Total   int64 `json:"total"`
+	}{}
+	if err := service.database.File.Query().
+		Where(libraryFiles(source), file.MovieIDIn(movieIDs...)).
+		GroupBy(file.FieldMovieID).
+		Aggregate(func(selector *sql.Selector) string {
+			return sql.As("SUM("+selector.C(file.FieldSize)+")", "total")
+		}).
+		Scan(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("sum movie file sizes: %w", err)
+	}
+	for _, row := range rows {
+		result[row.MovieID] = row.Total
+	}
+	return result, nil
 }

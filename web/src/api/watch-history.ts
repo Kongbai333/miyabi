@@ -1,10 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
-import type { LibrarySource } from '@/api/tasks'
+import { apiDelete, apiPut } from '@/api/client'
+import { libraryKeys } from '@/api/library'
 import { watchSessions } from '@/features/player/watch-progress'
-
-export const WATCH_HISTORY_PAGE_SIZE = 20
 
 export type WatchSession = {
   id: number
@@ -25,46 +23,6 @@ export type WatchProgress = {
   version: number
 }
 
-export type WatchHistoryItem = {
-  id: number
-  movie_id: number
-  code: string
-  title: string
-  cover?: string
-  poster?: string
-  watched_at: string
-  position: number
-  duration: number
-}
-
-export type WatchHistoryPage = {
-  source?: LibrarySource
-  items: WatchHistoryItem[]
-  total: number
-  page: number
-  has_more: boolean
-}
-
-export const watchHistoryKeys = {
-  all: ['library', 'history'] as const,
-  page: (page: number, group: number) => ['library', 'history', page, group] as const
-}
-
-export function useWatchHistory(page: number, group: number) {
-  return useQuery({
-    queryKey: watchHistoryKeys.page(page, group),
-    queryFn: ({ signal }) =>
-      apiGet<WatchHistoryPage>(
-        '/api/library/history',
-        { page, group_id: group > 0 ? group : undefined },
-        signal
-      ),
-    staleTime: 0,
-    retry: false,
-    refetchOnWindowFocus: true
-  })
-}
-
 export function saveWatchProgress(id: number, progress: WatchProgress, keepalive: boolean) {
   return apiPut<null>(`/api/library/history/${id}/progress`, progress, {
     keepalive,
@@ -72,33 +30,17 @@ export function saveWatchProgress(id: number, progress: WatchProgress, keepalive
   })
 }
 
-type HistoryRemoval = { source: LibrarySource } & (
-  | { type: 'selected'; ids: number[] }
-  | { type: 'all' }
-)
-
-export function useRemoveWatchHistory() {
+// Clearing history drops every saved position, which is what takes the progress
+// bars off the grid, so the library list is what has to be refetched.
+export function useClearWatchHistory() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (removal: HistoryRemoval) => {
-      const scope = {
-        account_id: removal.source.account_id,
-        directory_id: removal.source.directory.id
-      }
-      return removal.type === 'selected'
-        ? apiPost<{ removed: number }>('/api/library/history/remove', {
-            ...scope,
-            ids: removal.ids
-          })
-        : apiDelete<{ removed: number }>(`/api/library/history?${new URLSearchParams(scope)}`)
-    },
-    onSuccess: async (_, removal) => {
-      watchSessions.clear(
-        { account_id: removal.source.account_id, directory_id: removal.source.directory.id },
-        removal.type === 'selected' ? removal.ids : undefined
-      )
-      await queryClient.cancelQueries({ queryKey: watchHistoryKeys.all })
-      return queryClient.invalidateQueries({ queryKey: watchHistoryKeys.all })
+    mutationFn: (scope: WatchHistoryScope) =>
+      apiDelete<{ removed: number }>(`/api/library/history?${new URLSearchParams(scope)}`),
+    onSuccess: async (_, scope) => {
+      watchSessions.clear(scope)
+      await queryClient.cancelQueries({ queryKey: libraryKeys.all })
+      return queryClient.invalidateQueries({ queryKey: libraryKeys.all })
     }
   })
 }

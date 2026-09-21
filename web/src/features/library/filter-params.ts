@@ -1,13 +1,11 @@
-import type { LibraryFilter } from '@/api/library'
+import type { LibraryFilter, LibrarySort } from '@/api/library'
 
 export const EMPTY_LIBRARY_FILTER: LibraryFilter = {
   tagIds: [],
   actorIds: [],
-  seriesIds: [],
-  makerIds: [],
-  directorIds: [],
   years: [],
-  watched: ''
+  watched: '',
+  sort: 'added'
 }
 
 // The bar writes one value per dimension, so a repeated parameter means a
@@ -40,36 +38,31 @@ export type LibrarySearch = {
   group?: number
   tag?: number
   actor?: string
-  series?: string
-  maker?: string
-  director?: string
   year?: number
   watched?: 'yes' | 'no'
+  sort?: LibrarySort
 }
 
 // validateSearch: turn a hand-edited or stale URL into the shape the page reads.
 export function parseLibrarySearch(search: Record<string, unknown>): LibrarySearch {
   const page = integer(scalar(search.page, '媒体库页码'), '媒体库页码', 1)
+  const group = integer(scalar(search.group, '媒体库分组'), '媒体库分组', 0)
   const tag = integer(scalar(search.tag, '媒体库标签'), '媒体库标签', 1)
   const year = integer(scalar(search.year, '媒体库年份'), '媒体库年份', 1900, 2999)
-  const group = integer(scalar(search.group, '媒体库分组'), '媒体库分组', 0)
+  const actor = text(scalar(search.actor, '媒体库演员'), '媒体库演员')
   const watched = scalar(search.watched, '媒体库观看状态')
   if (watched !== '' && watched !== 'yes' && watched !== 'no') throw new Error('媒体库观看状态无效')
-  const actor = text(scalar(search.actor, '媒体库演员'), '媒体库演员')
-  const series = text(scalar(search.series, '媒体库系列'), '媒体库系列')
-  const maker = text(scalar(search.maker, '媒体库片商'), '媒体库片商')
-  const director = text(scalar(search.director, '媒体库导演'), '媒体库导演')
-
+  const sort = scalar(search.sort, '媒体库排序')
+  if (sort !== '' && sort !== 'added' && sort !== 'watched') throw new Error('媒体库排序无效')
   return {
     ...(page !== undefined && page > 1 && { page }),
     ...(group !== undefined && group > 0 && { group }),
     ...(tag !== undefined && { tag }),
     ...(actor !== undefined && { actor }),
-    ...(series !== undefined && { series }),
-    ...(maker !== undefined && { maker }),
-    ...(director !== undefined && { director }),
     ...(year !== undefined && { year }),
-    ...(watched !== '' && { watched: watched as 'yes' | 'no' })
+    ...(watched !== '' && { watched: watched as 'yes' | 'no' }),
+    // The default order stays out of the URL, the way page 1 and group 0 do.
+    ...(sort !== '' && sort !== 'added' && { sort: sort as LibrarySort })
   }
 }
 
@@ -80,33 +73,26 @@ export function libraryFilterOf(search: LibrarySearch): LibraryFilter {
     ...EMPTY_LIBRARY_FILTER,
     ...(search.tag !== undefined && { tagIds: [search.tag] }),
     ...(search.actor !== undefined && { actorIds: [search.actor] }),
-    ...(search.series !== undefined && { seriesIds: [search.series] }),
-    ...(search.maker !== undefined && { makerIds: [search.maker] }),
-    ...(search.director !== undefined && { directorIds: [search.director] }),
     ...(search.year !== undefined && { years: [search.year] }),
-    ...(search.watched !== undefined && { watched: search.watched })
+    ...(search.watched !== undefined && { watched: search.watched }),
+    ...(search.sort !== undefined && { sort: search.sort })
   }
 }
 
-// Changing a filter or a group returns to the first page: the new list is
-// shorter, and a stale page number would show an empty grid.
+// Changing a filter, a group or the order returns to the first page: the new
+// list is shorter, and a stale page number would show an empty grid.
 export function libraryFilterSearch(filter: LibraryFilter, group: number): LibrarySearch {
   const [tag] = filter.tagIds
   const [actor] = filter.actorIds
-  const [series] = filter.seriesIds
-  const [maker] = filter.makerIds
-  const [director] = filter.directorIds
   const [year] = filter.years
 
   return {
     ...(group > 0 && { group }),
     ...(tag !== undefined && { tag }),
     ...(actor !== undefined && { actor }),
-    ...(series !== undefined && { series }),
-    ...(maker !== undefined && { maker }),
-    ...(director !== undefined && { director }),
     ...(year !== undefined && { year }),
-    ...(filter.watched !== '' && { watched: filter.watched })
+    ...(filter.watched !== '' && { watched: filter.watched }),
+    ...(filter.sort !== 'added' && { sort: filter.sort })
   }
 }
 
@@ -114,9 +100,6 @@ export function hasLibraryFilter(filter: LibraryFilter): boolean {
   return (
     filter.tagIds.length > 0 ||
     filter.actorIds.length > 0 ||
-    filter.seriesIds.length > 0 ||
-    filter.makerIds.length > 0 ||
-    filter.directorIds.length > 0 ||
     filter.years.length > 0 ||
     filter.watched !== ''
   )

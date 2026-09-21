@@ -13,27 +13,6 @@
       "count": 1
     }
   ],
-  "series": [
-    {
-      "id": "series-1",
-      "name": "Series",
-      "count": 1
-    }
-  ],
-  "makers": [
-    {
-      "id": "maker-1",
-      "name": "Maker",
-      "count": 1
-    }
-  ],
-  "directors": [
-    {
-      "id": "director-1",
-      "name": "Director",
-      "count": 1
-    }
-  ],
   "years": [
     {
       "id": "2026",

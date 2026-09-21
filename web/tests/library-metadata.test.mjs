@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { libraryMovieMetadata } from '../src/features/library/movie-metadata.ts'
+import { libraryMovieMetadata, libraryMovieSummary } from '../src/features/library/movie-metadata.ts'
 
 test('library hover links use scraped JavDB IDs instead of local database IDs', () => {
   const metadata = libraryMovieMetadata({
@@ -29,4 +29,14 @@ test('incomplete local metadata keeps names without inventing searchable IDs', (
   assert.deepEqual(metadata.actors, [])
   assert.deepEqual(metadata.tags, [{ id: undefined, name: '旧标签' }])
   assert.equal(metadata.zone, undefined)
+})
+
+test('the card summary shows duration and video size, in megabytes', () => {
+  // Not 2 << 30: JS bitwise operators are signed 32-bit and would overflow.
+  assert.equal(libraryMovieSummary({ duration: 125, size: 2048 * 1024 * 1024 }), '125 分钟 · 2,048 MB')
+  assert.equal(libraryMovieSummary({ duration: 0, size: 1024 * 1024 }), '1 MB')
+})
+
+test('a movie with neither duration nor size adds no summary line', () => {
+  assert.equal(libraryMovieSummary({ duration: 0, size: 0 }), '')
 })

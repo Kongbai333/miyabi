@@ -1,14 +1,10 @@
 package service
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"math"
-	"reflect"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/ppxb/miyabi/internal/ent"
@@ -24,58 +20,21 @@ func historyFilm(t *testing.T, library *LibraryService, source LibrarySource, co
 	return film, video
 }
 
-func TestWatchHistoryPaginatesRecentMoviesWithBoundedScopedQueries(t *testing.T) {
-	library, _, payload := libraryFixture(t)
-	ctx := t.Context()
-	stamp := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
-	for i := range 23 {
-		film, _ := historyFilm(t, library, payload.Source, fmt.Sprintf("ABP-%03d", i))
-		library.database.WatchHistory.Create().SetAccountID(payload.Source.AccountID).SetRootID(payload.Source.Directory.ID).
-			SetMovie(film).SetSessionID(uuid.NewString()).SetWatchedAt(stamp.Add(time.Duration(i) * time.Minute)).
-			SetPosition(float64(i)).SetDuration(100).ExecX(ctx)
-		// Multiple video files must not duplicate a movie in history or its count.
-		library.database.File.Create().SetFileID(fmt.Sprintf("part-%d", i)).SetName("part.mp4").SetSize(1 << 30).
-			SetAccountID(payload.Source.AccountID).SetRootID(payload.Source.Directory.ID).SetMovie(film).ExecX(ctx)
+// libraryMovie reads one card out of the grid, which is where playback progress
+// is now surfaced.
+func libraryMovie(t *testing.T, library *LibraryService, movieID int) LibraryMovie {
+	t.Helper()
+	page, err := library.Movies(t.Context(), 1, 50, LibraryFilter{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i, source := range []LibrarySource{
-		{AccountID: "other", Directory: payload.Source.Directory},
-		{AccountID: payload.Source.AccountID, Directory: PanLibraryDirectory{ID: "other"}},
-	} {
-		film, _ := historyFilm(t, library, source, fmt.Sprintf("HIDDEN-%d", i))
-		library.database.WatchHistory.Create().SetAccountID(source.AccountID).SetRootID(source.Directory.ID).
-			SetMovie(film).SetSessionID(uuid.NewString()).ExecX(ctx)
+	for _, film := range page.Movies {
+		if film.ID == movieID {
+			return film
+		}
 	}
-	queries := map[string]int{}
-	library.database.Intercept(ent.InterceptFunc(func(next ent.Querier) ent.Querier {
-		return ent.QuerierFunc(func(ctx context.Context, query ent.Query) (ent.Value, error) {
-			queries[fmt.Sprintf("%T", query)]++
-			return next.Query(ctx, query)
-		})
-	}))
-	page, err := library.WatchHistory(ctx, 1, 0)
-	if err != nil || page.Source == nil || *page.Source != payload.Source || page.Total != 23 || !page.HasMore || len(page.Items) != 20 {
-		t.Fatalf("incorrect first page: %+v, %v", page, err)
-	}
-	if page.Items[0].Code != "ABP-022" || page.Items[0].Position != 22 || page.Items[0].Duration != 100 || page.Items[19].Code != "ABP-003" {
-		t.Fatalf("history lost progress or recent order: %+v", page.Items)
-	}
-	want := map[string]int{"*ent.SettingQuery": 1, "*ent.WatchHistoryQuery": 2, "*ent.MovieQuery": 1}
-	if !reflect.DeepEqual(queries, want) {
-		t.Fatalf("history loaded redundant data: %v", queries)
-	}
-	page, err = library.WatchHistory(ctx, 2, 0)
-	if err != nil || len(page.Items) != 3 || page.HasMore || page.Items[2].Code != "ABP-000" {
-		t.Fatalf("incorrect final page: %+v, %v", page, err)
-	}
-	page, err = library.WatchHistory(ctx, 3, 0)
-	if err != nil || len(page.Items) != 0 || page.Total != 23 || page.Items == nil {
-		t.Fatalf("out-of-range page lost its total or empty array: %+v, %v", page, err)
-	}
-	library.database.Setting.Delete().ExecX(ctx)
-	page, err = library.WatchHistory(ctx, 1, 0)
-	if err != nil || page.Source != nil || page.Total != 0 || page.Items == nil || len(page.Items) != 0 {
-		t.Fatalf("unmounted history must be empty: %+v, %v", page, err)
-	}
+	t.Fatalf("movie %d is missing from the grid", movieID)
+	return LibraryMovie{}
 }
 
 func TestWatchProgressPreservesResumeAndRejectsStaleSessionsAndVersions(t *testing.T) {
@@ -182,30 +141,24 @@ func TestClearingHistoryPreservesMoviesAndCannotBeUndoneByLateProgress(t *testin
 	other := library.database.WatchHistory.Create().SetAccountID("other").SetRootID("10").SetMovie(first).
 		SetSessionID(uuid.NewString()).SaveX(ctx)
 	scope := WatchHistoryScope{AccountID: payload.Source.AccountID, DirectoryID: payload.Source.Directory.ID}
-	if count, err := library.RemoveWatchHistory(ctx, scope, nil); err != nil || count != 0 {
-		t.Fatalf("empty selection must not clear history: %d, %v", count, err)
-	}
 	if _, err := library.ClearWatchHistory(ctx, WatchHistoryScope{AccountID: "other", DirectoryID: "10"}); !errors.Is(err, ErrWatchHistorySourceChanged) {
 		t.Fatalf("a stale clear operation was accepted: %v", err)
 	}
-	if count, err := library.RemoveWatchHistory(ctx, scope, []int{firstSession.ID, other.ID}); err != nil || count != 1 {
-		t.Fatalf("selected deletion escaped its source: %d, %v", count, err)
+	if count, err := library.ClearWatchHistory(ctx, scope); err != nil || count != 2 {
+		t.Fatalf("clear did not remove the source's records: %d, %v", count, err)
 	}
 	progress := WatchProgress{SessionID: firstSession.SessionID, FileID: video.FileID, Position: 100, Duration: 600, Version: 1}
 	if err := library.SaveWatchProgress(ctx, firstSession.ID, progress); !ent.IsNotFound(err) {
 		t.Fatalf("late progress recreated a cleared record: %v", err)
 	}
-	if count, err := library.ClearWatchHistory(ctx, scope); err != nil || count != 1 {
-		t.Fatalf("clear all did not remove the remaining record: %d, %v", count, err)
-	}
 	if library.database.WatchHistory.Query().CountX(ctx) != 1 || !library.database.WatchHistory.Query().Where(watchhistory.IDEQ(other.ID)).ExistX(ctx) {
-		t.Fatal("clear all removed another account's history")
+		t.Fatal("clear removed another account's history")
 	}
 	if !library.database.Movie.GetX(ctx, first.ID).Watched || library.database.File.Query().CountX(ctx) != 2 {
 		t.Fatal("clearing history removed files or reset watched badges")
 	}
 	if library.database.WatchHistory.Query().Where(watchhistory.IDEQ(secondSession.ID)).ExistX(ctx) {
-		t.Fatal("clear all left an active history record")
+		t.Fatal("clear left an active history record")
 	}
 	// Removing an orphan movie during scanning must cascade to history.
 	library.database.File.Delete().Where(file.MovieIDEQ(first.ID)).ExecX(ctx)
@@ -215,34 +168,33 @@ func TestClearingHistoryPreservesMoviesAndCannotBeUndoneByLateProgress(t *testin
 	}
 }
 
-// The library group tabs also narrow the history page, so a starred movie
-// outside the selected group must not appear.
-func TestWatchHistoryFiltersByFavoriteGroup(t *testing.T) {
+// The grid is where progress is shown now, so clearing history has to take the
+// bar away while leaving the movie and its watched badge alone.
+func TestClearingHistoryRemovesLibraryProgress(t *testing.T) {
 	library, _, payload := libraryFixture(t)
 	ctx := t.Context()
-	group, err := library.CreateFavoriteGroup(ctx, "喜欢")
+	film, video := historyFilm(t, library, payload.Source, "ABP-001")
+	session, err := library.MarkWatched(ctx, film.ID, testWatchScope(payload.Source))
 	if err != nil {
 		t.Fatal(err)
 	}
-	starred, _ := historyFilm(t, library, payload.Source, "ABP-001")
-	other, _ := historyFilm(t, library, payload.Source, "ABP-002")
-	for _, film := range []*ent.Movie{starred, other} {
-		library.database.WatchHistory.Create().SetAccountID(payload.Source.AccountID).SetRootID(payload.Source.Directory.ID).
-			SetMovie(film).SetSessionID(uuid.NewString()).ExecX(ctx)
-	}
-	if err := library.SetFavorite(ctx, starred.ID, []int{group.ID}); err != nil {
+	if err := library.SaveWatchProgress(ctx, session.ID, WatchProgress{
+		SessionID: session.SessionID, FileID: video.FileID, Position: 120, Duration: 600, Version: 1,
+	}); err != nil {
 		t.Fatal(err)
 	}
+	if progress := libraryMovie(t, library, film.ID).Progress; progress == nil || progress.Position != 120 {
+		t.Fatalf("progress is missing before the clear: %+v", progress)
+	}
 
-	page, err := library.WatchHistory(ctx, 1, group.ID)
-	if err != nil || page.Total != 1 || len(page.Items) != 1 || page.Items[0].MovieID != starred.ID {
-		t.Fatalf("grouped history = %+v, %v", page, err)
+	if _, err := library.ClearWatchHistory(ctx, testWatchScope(payload.Source)); err != nil {
+		t.Fatal(err)
 	}
-	// An unknown group must narrow to nothing instead of falling back to everything.
-	if page, err := library.WatchHistory(ctx, 1, 9999); err != nil || page.Total != 0 || page.Items == nil {
-		t.Fatalf("unknown group history = %+v, %v", page, err)
+	card := libraryMovie(t, library, film.ID)
+	if card.Progress != nil {
+		t.Fatalf("cleared history left a progress bar: %+v", card.Progress)
 	}
-	if page, err := library.WatchHistory(ctx, 1, 0); err != nil || page.Total != 2 {
-		t.Fatalf("unfiltered history = %+v, %v", page, err)
+	if !card.Watched {
+		t.Fatal("clearing history reset the watched badge")
 	}
 }

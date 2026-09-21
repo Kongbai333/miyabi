@@ -46,6 +46,22 @@ func (cache *Cache) FromCover(body []byte) (Artwork, error) {
 	return cache.saveArtwork(poster, cover)
 }
 
+// FromFrame caches a video still as card artwork. A still is not a poster, so
+// the 2:3 poster slot stays empty rather than holding a crop of a landscape
+// frame; the card reads the thumbnail and the hover card reads the fanart.
+func (cache *Cache) FromFrame(body []byte) (Artwork, error) {
+	frame, err := imaging.Decode(bytes.NewReader(body))
+	if err != nil {
+		return Artwork{}, fmt.Errorf("decode video frame: %w", err)
+	}
+	fanart, err := cache.save(frame)
+	if err != nil {
+		return Artwork{}, err
+	}
+	thumbnail, err := cache.save(imaging.Resize(frame, 480, 0, imaging.Lanczos))
+	return Artwork{Fanart: fanart, Thumbnail: thumbnail}, err
+}
+
 func (cache *Cache) Restore(poster, fanart []byte) (Artwork, error) {
 	posterImage, err := imaging.Decode(bytes.NewReader(poster), imaging.AutoOrientation(true))
 	if err != nil {

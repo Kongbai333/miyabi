@@ -69,8 +69,6 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	api.PUT("/library/favorite-groups/:id", libraryFavoriteGroupUpdateHandler(deps.Library))
 	api.DELETE("/library/favorite-groups/:id", libraryFavoriteGroupDeleteHandler(deps.Library))
 	api.PUT("/library/movies/:id/favorite", libraryFavoriteHandler(deps.Library))
-	api.GET("/library/history", libraryHistoryHandler(deps.Library))
-	api.POST("/library/history/remove", libraryHistoryRemoveHandler(deps.Library))
 	api.DELETE("/library/history", libraryHistoryClearHandler(deps.Library))
 	api.PUT("/library/history/:id/progress", libraryHistoryProgressHandler(deps.Library))
 	api.POST("/library/scan", libraryScanHandler(deps.Library))

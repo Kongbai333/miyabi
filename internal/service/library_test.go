@@ -58,9 +58,11 @@ func TestLibraryPageLoadsCardMetadataWithScopedCounts(t *testing.T) {
 	if page.Source == nil || *page.Source != payload.Source || page.Total != 2 || page.HasMore || len(page.Movies) != 2 {
 		t.Fatalf("library statistics escaped the mounted source: %#v", page)
 	}
-	// Counting now runs against the movie scope and the favorites lookup adds one query.
+	// Counting runs against the movie scope; the favorites and progress lookups
+	// add one query each for the whole page.
 	wantQueries := map[string]int{
-		"*ent.SettingQuery": 1, "*ent.MovieQuery": 2, "*ent.TagQuery": 1, "*ent.ActorQuery": 1, "*ent.FavoriteQuery": 1,
+		"*ent.SettingQuery": 1, "*ent.MovieQuery": 2, "*ent.TagQuery": 1, "*ent.ActorQuery": 1,
+		"*ent.FavoriteQuery": 1, "*ent.WatchHistoryQuery": 1, "*ent.FileQuery": 1,
 	}
 	if !reflect.DeepEqual(queries, wantQueries) {
 		t.Fatalf("library cards made redundant queries: %#v", queries)
@@ -72,14 +74,15 @@ func TestLibraryPageLoadsCardMetadataWithScopedCounts(t *testing.T) {
 				!reflect.DeepEqual(item.Tags, []LibraryTag{{ID: tagA.ID, JavDBID: tagA.JavdbID, Name: tagA.Name}, {ID: tagB.ID, JavDBID: tagB.JavdbID, Name: tagB.Name}}) {
 				t.Fatalf("card lost or reordered catalogue data: %#v", item)
 			}
-			if item.ReleaseDate != "2026-09-12" || item.Duration != 125 || item.Rating != 4.5 || item.Fanart != "/api/library/artwork/fanart" ||
+			if item.ReleaseDate != "2026-09-12" || item.Duration != 125 || item.Rating != 4.5 || item.Size != 2048 || item.Fanart != "/api/library/artwork/fanart" ||
 				!reflect.DeepEqual(item.Maker, &LibraryEntity{ID: "maker-id", Name: "Studio"}) ||
 				!reflect.DeepEqual(item.Series, &LibraryEntity{ID: "series-id", Name: "Series"}) ||
 				!reflect.DeepEqual(item.Director, &LibraryEntity{ID: "director-id", Name: "Director"}) ||
 				!reflect.DeepEqual(item.Actors, []LibraryEntity{{ID: actorA.JavdbID, Name: actorA.Name}, {ID: actorB.JavdbID, Name: actorB.Name}}) {
 				t.Fatalf("local hover details were omitted or lost their search IDs: %#v", item)
 			}
-		} else if item.ID != empty.ID || item.Title != "" || item.Code != empty.Code || item.Tags == nil || len(item.Tags) != 0 ||
+		} else if item.ID != empty.ID || item.Title != "" || item.Code != empty.Code || item.Size != 1024 ||
+			item.Tags == nil || len(item.Tags) != 0 ||
 			item.Actors == nil || len(item.Actors) != 0 || item.ScrapeStatus != movie.ScrapeStatusPending || item.Watched ||
 			!reflect.DeepEqual(item.Maker, &LibraryEntity{Name: "Legacy studio"}) {
 			t.Fatalf("unscraped card is not usable: %#v", item)
@@ -92,10 +95,9 @@ func TestLibraryPageLoadsCardMetadataWithScopedCounts(t *testing.T) {
 		if err := json.Unmarshal(body, &fields); err != nil {
 			t.Fatal(err)
 		}
-		for _, removed := range []string{"file_count", "size"} {
-			if _, exists := fields[removed]; exists {
-				t.Errorf("card still exposes unused field %s", removed)
-			}
+		// file_count was dropped as unused; the total video size is now shown.
+		if _, exists := fields["file_count"]; exists {
+			t.Error("card still exposes unused field file_count")
 		}
 		for _, required := range []string{"scrape_status", "watched"} {
 			if _, exists := fields[required]; !exists {

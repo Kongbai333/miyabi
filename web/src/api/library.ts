@@ -11,6 +11,8 @@ export const LIBRARY_PAGE_SIZE = 20
 
 export type LibraryEntity = { id?: string; name: string }
 
+export type LibraryProgress = { position: number; duration: number }
+
 export type LibraryMovie = {
   id: number
   code: string
@@ -21,6 +23,7 @@ export type LibraryMovie = {
   fanart?: string
   release_date?: string
   duration: number
+  size: number
   rating: number
   maker?: LibraryEntity
   series?: LibraryEntity
@@ -30,6 +33,8 @@ export type LibraryMovie = {
   scrape_status: 'pending' | 'done' | 'failed'
   watched: boolean
   favorite_group_ids: number[]
+  // Absent until the movie has actually been played.
+  progress?: LibraryProgress
 }
 
 export type LibraryPage = {
@@ -49,11 +54,11 @@ export type LibraryFilterOption = { id: string; name: string; count: number }
 export type LibraryFilterOptions = {
   tags: LibraryFilterOption[]
   actors: LibraryFilterOption[]
-  series: LibraryFilterOption[]
-  makers: LibraryFilterOption[]
-  directors: LibraryFilterOption[]
   years: LibraryFilterOption[]
 }
+
+// LibrarySort orders the grid: newest scan first, or most recently opened first.
+export type LibrarySort = 'added' | 'watched'
 
 // Every dimension is a multi-select on the wire, so the API stays the same if
 // the bar ever lets one dimension hold several values. The group tabs keep
@@ -61,11 +66,9 @@ export type LibraryFilterOptions = {
 export type LibraryFilter = {
   tagIds: number[]
   actorIds: string[]
-  seriesIds: string[]
-  makerIds: string[]
-  directorIds: string[]
   years: number[]
   watched: '' | 'yes' | 'no'
+  sort: LibrarySort
 }
 
 export const libraryKeys = {
@@ -88,11 +91,9 @@ export function useLibraryMovies(page: number, group: number, filter: LibraryFil
           group_id: group > 0 ? [group] : undefined,
           tag_id: filter.tagIds,
           actor_id: filter.actorIds,
-          series_id: filter.seriesIds,
-          maker_id: filter.makerIds,
-          director_id: filter.directorIds,
           year: filter.years,
-          watched: filter.watched
+          watched: filter.watched,
+          sort: filter.sort
         },
         signal
       ),

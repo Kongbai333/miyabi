@@ -15,7 +15,6 @@ import { libraryKeys } from '@/api/library'
 import { monitorKeys } from '@/api/monitor'
 import { offlineKeys } from '@/api/offline'
 import { taskKeys, type ScanTask, type TaskRevisions } from '@/api/tasks'
-import { watchHistoryKeys } from '@/api/watch-history'
 
 type ConnectionState = 'connecting' | 'connected' | 'disconnected'
 type TaskConnection = { status: ConnectionState; reconnect: () => void }
@@ -83,9 +82,10 @@ export function TaskEventsProvider({ children }: PropsWithChildren) {
           !disposed &&
           (libraryChanged || offlineChanged || historyChanged || monitorChanged)
         ) {
-          const refreshLibrary = libraryChanged
+          // Playback progress lives on the library cards, so a history change
+          // refreshes the same list a library change does.
+          const refreshLibrary = libraryChanged || historyChanged
           const refreshMovieStates = libraryChanged || offlineChanged
-          const refreshHistory = historyChanged
           const refreshMonitors = monitorChanged
           libraryChanged = false
           offlineChanged = false
@@ -101,9 +101,7 @@ export function TaskEventsProvider({ children }: PropsWithChildren) {
               : Promise.resolve(),
             refreshLibrary
               ? queryClient.invalidateQueries({ queryKey: libraryKeys.all })
-              : refreshHistory
-                ? queryClient.invalidateQueries({ queryKey: watchHistoryKeys.all })
-                : Promise.resolve()
+              : Promise.resolve()
           ])
         }
       } finally {

@@ -1,4 +1,4 @@
-import type { LibraryFilter, LibraryFilterOptions } from '@/api/library'
+import type { LibraryFilter, LibraryFilterOptions, LibrarySort } from '@/api/library'
 import { InlineError } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,6 +17,11 @@ type FilterChoice = { id: string; name: string; count?: number }
 const WATCHED_OPTIONS: FilterChoice[] = [
   { id: 'yes', name: '已看' },
   { id: 'no', name: '未看' }
+]
+
+const SORT_OPTIONS: Array<{ id: LibrarySort; name: string }> = [
+  { id: 'added', name: '最近入库' },
+  { id: 'watched', name: '最近观看' }
 ]
 
 const toIDs = (value: string) => (value === '' ? [] : [Number(value)])
@@ -69,24 +74,6 @@ export function LibraryFilterBar({
             onChange={value => onChange({ ...filter, actorIds: toNames(value) })}
           />
           <FilterSelect
-            label="系列"
-            value={firstValue(filter.seriesIds)}
-            options={options?.series ?? []}
-            onChange={value => onChange({ ...filter, seriesIds: toNames(value) })}
-          />
-          <FilterSelect
-            label="片商"
-            value={firstValue(filter.makerIds)}
-            options={options?.makers ?? []}
-            onChange={value => onChange({ ...filter, makerIds: toNames(value) })}
-          />
-          <FilterSelect
-            label="导演"
-            value={firstValue(filter.directorIds)}
-            options={options?.directors ?? []}
-            onChange={value => onChange({ ...filter, directorIds: toNames(value) })}
-          />
-          <FilterSelect
             label="年份"
             value={firstValue(filter.years)}
             options={options?.years ?? []}
@@ -101,13 +88,20 @@ export function LibraryFilterBar({
         </>
       )}
 
+      <FilterSelect
+        label="排序"
+        value={filter.sort}
+        options={SORT_OPTIONS}
+        onChange={value => onChange({ ...filter, sort: value as LibrarySort })}
+      />
+
       {hasLibraryFilter(filter) ? (
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="shrink-0"
-          onClick={() => onChange(EMPTY_LIBRARY_FILTER)}
+          onClick={() => onChange({ ...EMPTY_LIBRARY_FILTER, sort: filter.sort })}
         >
           清除筛选
         </Button>
@@ -128,17 +122,18 @@ function FilterSelect({
   onChange: (value: string) => void
 }) {
   return (
-    <Select value={value || 'all'} onValueChange={next => onChange(next === 'all' ? '' : next)}>
+    <Select value={value} onValueChange={onChange}>
       <SelectTrigger className="w-full sm:w-44" aria-label={label}>
-        <SelectValue placeholder={`全部${label}`} />
+        <SelectValue />
       </SelectTrigger>
       <SelectContent position="popper" align="start">
         <SelectGroup>
-          <SelectItem value="all">全部{label}</SelectItem>
           {options.map(option => (
             <SelectItem key={option.id} value={option.id}>
               {option.name}
-              <span className="text-xs text-muted-foreground tabular-nums">{option.count}</span>
+              {option.count !== undefined ? (
+                <span className="text-xs text-muted-foreground tabular-nums">{option.count}</span>
+              ) : null}
             </SelectItem>
           ))}
         </SelectGroup>

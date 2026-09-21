@@ -119,31 +119,21 @@ func (goldenLibrary) Movies(context.Context, int, int, service.LibraryFilter) (s
 	cover, poster, javdbID := "/api/library/artwork/aa.jpg", "/api/library/artwork/bb.jpg", "movie-exact"
 	return service.LibraryPage{Source: &source, Total: 2, Page: 1, HasMore: false, Movies: []service.LibraryMovie{
 		{ID: 7, Code: "ABP-123", Title: "Localized title", JavDBID: &javdbID, Cover: &cover, Poster: &poster, Fanart: "/api/library/artwork/cc.jpg",
-			ReleaseDate: "2026-08-01", Duration: 120, Rating: 4.5,
+			ReleaseDate: "2026-08-01", Duration: 120, Rating: 4.5, Size: 2 << 30,
 			Director: &service.LibraryEntity{ID: "director-1", Name: "Director"}, Maker: &service.LibraryEntity{ID: "maker-1", Name: "Maker"},
 			Series: &service.LibraryEntity{ID: "series-1", Name: "Series"},
 			Actors: []service.LibraryEntity{{ID: "actor-1", Name: "Actor"}}, Tags: []service.LibraryTag{{ID: 3, JavDBID: "tag-1", Name: "Tag"}},
-			ScrapeStatus: movie.ScrapeStatusDone, Watched: true, FavoriteGroupIDs: []int{4}},
-		{ID: 8, Code: "ZZZ-999", Actors: []service.LibraryEntity{}, Tags: []service.LibraryTag{}, ScrapeStatus: movie.ScrapeStatusFailed, FavoriteGroupIDs: []int{}},
-	}}, nil
-}
-
-func (goldenLibrary) WatchHistory(context.Context, int, int) (service.WatchHistoryPage, error) {
-	source := goldenSource()
-	cover := "/api/library/artwork/aa.jpg"
-	return service.WatchHistoryPage{Source: &source, Total: 1, Page: 1, Items: []service.WatchHistoryItem{
-		{ID: 1, MovieID: 7, Code: "ABP-123", Title: "Localized title", Cover: &cover, WatchedAt: goldenTime(), Position: 61.5, Duration: 7200},
+			ScrapeStatus: movie.ScrapeStatusDone, Watched: true, FavoriteGroupIDs: []int{4},
+			Progress: &service.LibraryProgress{Position: 61.5, Duration: 7200}},
+		{ID: 8, Code: "ZZZ-999", Size: 1024, Actors: []service.LibraryEntity{}, Tags: []service.LibraryTag{}, ScrapeStatus: movie.ScrapeStatusFailed, FavoriteGroupIDs: []int{}},
 	}}, nil
 }
 
 func (goldenLibrary) FilterOptions(context.Context) (service.LibraryFilterOptions, error) {
 	return service.LibraryFilterOptions{
-		Tags:      []service.LibraryFilterOption{{ID: "3", Name: "Tag", Count: 1}},
-		Actors:    []service.LibraryFilterOption{{ID: "actor-1", Name: "Actor", Count: 1}},
-		Series:    []service.LibraryFilterOption{{ID: "series-1", Name: "Series", Count: 1}},
-		Makers:    []service.LibraryFilterOption{{ID: "maker-1", Name: "Maker", Count: 1}},
-		Directors: []service.LibraryFilterOption{{ID: "director-1", Name: "Director", Count: 1}},
-		Years:     []service.LibraryFilterOption{{ID: "2026", Name: "2026", Count: 1}},
+		Tags:   []service.LibraryFilterOption{{ID: "3", Name: "Tag", Count: 1}},
+		Actors: []service.LibraryFilterOption{{ID: "actor-1", Name: "Actor", Count: 1}},
+		Years:  []service.LibraryFilterOption{{ID: "2026", Name: "2026", Count: 1}},
 	}, nil
 }
 
@@ -259,7 +249,6 @@ func TestResponseContractsMatchGoldenFiles(t *testing.T) {
 		{name: "discover_tags", method: http.MethodGet, path: "/api/discover/tags?zone=censored"},
 		{name: "javdb_route", method: http.MethodGet, path: "/api/javdb/route"},
 		{name: "library_movies", method: http.MethodGet, path: "/api/library/movies"},
-		{name: "library_history", method: http.MethodGet, path: "/api/library/history"},
 		{name: "library_filter_options", method: http.MethodGet, path: "/api/library/filter-options"},
 		{name: "tasks", method: http.MethodGet, path: "/api/tasks"},
 		{name: "offline_tasks", method: http.MethodGet, path: "/api/offline/tasks"},

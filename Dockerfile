@@ -33,8 +33,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM debian:bookworm-slim AS runtime
 
+# ffmpeg decodes the card stills taken from videos whose scrape failed.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 miyabi \
     && useradd --uid 10001 --gid miyabi --create-home --home-dir /app miyabi \

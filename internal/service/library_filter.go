@@ -6,27 +6,36 @@ import (
 	"sort"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/favorite"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/predicate"
 	"github.com/ppxb/miyabi/internal/ent/tag"
+	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 )
 
 // LibraryFilter narrows the library grid. Every slice is a multi-select: one
 // matching value is enough, and an empty slice means "no restriction".
 type LibraryFilter struct {
-	TagIDs      []int
-	ActorIDs    []string
-	SeriesIDs   []string
-	MakerIDs    []string
-	DirectorIDs []string
-	Years       []int
-	GroupIDs    []int
+	TagIDs   []int
+	ActorIDs []string
+	Years    []int
+	GroupIDs []int
 	// Watched accepts "", "any", "yes" or "no".
 	Watched string
+	// Sort orders the surviving movies; an empty value keeps the scan order.
+	Sort LibrarySort
 }
+
+// LibrarySort selects the grid order. "added" is the default: newest scan first.
+type LibrarySort string
+
+const (
+	LibrarySortAdded   LibrarySort = "added"
+	LibrarySortWatched LibrarySort = "watched"
+)
 
 // LibraryFilterOption is one selectable value plus how many movies carry it.
 type LibraryFilterOption struct {
@@ -38,12 +47,9 @@ type LibraryFilterOption struct {
 // LibraryFilterOptions carries the values this library actually contains, so
 // the UI offers real choices instead of the whole JavDB taxonomy.
 type LibraryFilterOptions struct {
-	Tags      []LibraryFilterOption `json:"tags"`
-	Actors    []LibraryFilterOption `json:"actors"`
-	Series    []LibraryFilterOption `json:"series"`
-	Makers    []LibraryFilterOption `json:"makers"`
-	Directors []LibraryFilterOption `json:"directors"`
-	Years     []LibraryFilterOption `json:"years"`
+	Tags   []LibraryFilterOption `json:"tags"`
+	Actors []LibraryFilterOption `json:"actors"`
+	Years  []LibraryFilterOption `json:"years"`
 }
 
 // libraryFilterOptionLimit keeps a huge library from returning an unusable
@@ -52,22 +58,19 @@ const libraryFilterOptionLimit = 300
 
 // predicate folds every selected dimension into one query. Dimensions are
 // ANDed and values inside a dimension are ORed, which is what a multi-select
-// filter bar is expected to do.
+// filter bar is expected to do. It also rejects the values this service cannot
+// honour, so one call validates the whole request.
 func (filter LibraryFilter) predicate(scope predicate.Movie) (predicate.Movie, error) {
+	switch filter.Sort {
+	case "", LibrarySortAdded, LibrarySortWatched:
+	default:
+		return nil, fmt.Errorf("filter sort must be added or watched, got %q", filter.Sort)
+	}
 	if len(filter.TagIDs) > 0 {
 		scope = movie.And(scope, movie.HasTagsWith(tag.IDIn(filter.TagIDs...)))
 	}
 	if len(filter.ActorIDs) > 0 {
 		scope = movie.And(scope, movie.HasActorsWith(actor.JavdbIDIn(filter.ActorIDs...)))
-	}
-	if len(filter.SeriesIDs) > 0 {
-		scope = movie.And(scope, movie.SeriesIDIn(filter.SeriesIDs...))
-	}
-	if len(filter.MakerIDs) > 0 {
-		scope = movie.And(scope, movie.MakerIDIn(filter.MakerIDs...))
-	}
-	if len(filter.DirectorIDs) > 0 {
-		scope = movie.And(scope, movie.DirectorIDIn(filter.DirectorIDs...))
 	}
 	if len(filter.GroupIDs) > 0 {
 		scope = movie.And(scope, movie.HasFavoritesWith(favorite.GroupIDIn(filter.GroupIDs...)))
@@ -103,13 +106,38 @@ func (filter LibraryFilter) predicate(scope predicate.Movie) (predicate.Movie, e
 	return scope, nil
 }
 
+// order appends the grid order to the query. "watched" needs the history table,
+// which is joined rather than denormalised so a cleared or re-mounted source
+// cannot leave a stale timestamp behind.
+func (filter LibraryFilter) order(source LibrarySource, query *ent.MovieQuery) *ent.MovieQuery {
+	if filter.Sort == LibrarySortWatched {
+		return query.Order(orderByWatchTime(source), ent.Desc(movie.FieldID))
+	}
+	return query.Order(ent.Desc(movie.FieldCreatedAt), ent.Desc(movie.FieldID))
+}
+
+// orderByWatchTime sorts the grid by when each movie was last opened, with
+// never-watched movies last. The source is part of the join, so a movie opened
+// from a previously mounted directory is ordered as if it had never been
+// watched instead of leaking an old timestamp into the current library.
+func orderByWatchTime(source LibrarySource) func(*sql.Selector) {
+	return func(selector *sql.Selector) {
+		history := sql.Table(watchhistory.Table).As("watch_order")
+		selector.LeftJoin(history).OnP(sql.And(
+			sql.ColumnsEQ(selector.C(movie.FieldID), history.C(watchhistory.FieldMovieID)),
+			sql.EQ(history.C(watchhistory.FieldAccountID), source.AccountID),
+			sql.EQ(history.C(watchhistory.FieldRootID), source.Directory.ID),
+		))
+		selector.OrderExpr(sql.Expr(history.C(watchhistory.FieldWatchedAt) + " DESC NULLS LAST"))
+	}
+}
+
 // FilterOptions lists the distinct values the mounted library contains. The
 // library is personal-scale, so one pass over its movies feeds every dimension
 // instead of paying for a grouped query per column.
 func (service *LibraryService) FilterOptions(ctx context.Context) (LibraryFilterOptions, error) {
 	result := LibraryFilterOptions{
-		Tags: []LibraryFilterOption{}, Actors: []LibraryFilterOption{}, Series: []LibraryFilterOption{},
-		Makers: []LibraryFilterOption{}, Directors: []LibraryFilterOption{}, Years: []LibraryFilterOption{},
+		Tags: []LibraryFilterOption{}, Actors: []LibraryFilterOption{}, Years: []LibraryFilterOption{},
 	}
 	source, err := loadLibrarySource(ctx, service.database)
 	if err != nil {
@@ -119,8 +147,7 @@ func (service *LibraryService) FilterOptions(ctx context.Context) (LibraryFilter
 		return result, nil
 	}
 	records, err := service.database.Movie.Query().Where(movie.HasFilesWith(libraryFiles(*source))).
-		Select(movie.FieldSeriesID, movie.FieldSeriesName, movie.FieldMakerID, movie.FieldMakerName,
-			movie.FieldDirectorID, movie.FieldDirectorName, movie.FieldReleaseDate).
+		Select(movie.FieldReleaseDate).
 		WithTags(func(query *ent.TagQuery) {
 			query.Select(tag.FieldID, tag.FieldName)
 		}).
@@ -132,8 +159,7 @@ func (service *LibraryService) FilterOptions(ctx context.Context) (LibraryFilter
 	}
 
 	tags, actors := map[string]*LibraryFilterOption{}, map[string]*LibraryFilterOption{}
-	series, makers := map[string]*LibraryFilterOption{}, map[string]*LibraryFilterOption{}
-	directors, years := map[string]*LibraryFilterOption{}, map[int]int{}
+	years := map[int]int{}
 	for _, record := range records {
 		for _, label := range record.Edges.Tags {
 			countOption(tags, fmt.Sprint(label.ID), label.Name)
@@ -141,18 +167,12 @@ func (service *LibraryService) FilterOptions(ctx context.Context) (LibraryFilter
 		for _, person := range record.Edges.Actors {
 			countOption(actors, person.JavdbID, person.Name)
 		}
-		countNamed(series, record.SeriesID, record.SeriesName)
-		countNamed(makers, record.MakerID, record.MakerName)
-		countNamed(directors, record.DirectorID, record.DirectorName)
 		if record.ReleaseDate != nil {
 			years[record.ReleaseDate.Year()]++
 		}
 	}
 	result.Tags = sortOptions(tags, libraryFilterOptionLimit)
 	result.Actors = sortOptions(actors, libraryFilterOptionLimit)
-	result.Series = sortOptions(series, libraryFilterOptionLimit)
-	result.Makers = sortOptions(makers, libraryFilterOptionLimit)
-	result.Directors = sortOptions(directors, libraryFilterOptionLimit)
 	result.Years = sortYears(years, libraryFilterOptionLimit)
 	return result, nil
 }
@@ -169,13 +189,6 @@ func countOption(target map[string]*LibraryFilterOption, id, name string) {
 		return
 	}
 	target[id] = &LibraryFilterOption{ID: id, Name: name, Count: 1}
-}
-
-func countNamed(target map[string]*LibraryFilterOption, id, name *string) {
-	if id == nil || name == nil {
-		return
-	}
-	countOption(target, *id, *name)
 }
 
 func sortOptions(source map[string]*LibraryFilterOption, limit int) []LibraryFilterOption {

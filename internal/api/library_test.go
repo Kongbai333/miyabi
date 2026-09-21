@@ -134,11 +134,9 @@ func TestLibraryMoviesForwardEveryFilterDimension(t *testing.T) {
 	router := NewRouter(Dependencies{Library: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/library/movies?page=3&limit=5"+
-		"&tag_id=1&tag_id=2&actor_id=actor-1&series_id=series-1&maker_id=maker-1"+
-		"&director_id=director-1&year=2025&year=2026&group_id=4&watched=no", nil))
-	want := service.LibraryFilter{TagIDs: []int{1, 2}, ActorIDs: []string{"actor-1"}, SeriesIDs: []string{"series-1"},
-		MakerIDs: []string{"maker-1"}, DirectorIDs: []string{"director-1"}, Years: []int{2025, 2026},
-		GroupIDs: []int{4}, Watched: "no"}
+		"&tag_id=1&tag_id=2&actor_id=actor-1&year=2025&year=2026&group_id=4&watched=no&sort=watched", nil))
+	want := service.LibraryFilter{TagIDs: []int{1, 2}, ActorIDs: []string{"actor-1"}, Years: []int{2025, 2026},
+		GroupIDs: []int{4}, Watched: "no", Sort: service.LibrarySortWatched}
 	if response.Code != http.StatusOK || stub.page != 3 || stub.limit != 5 || !reflect.DeepEqual(stub.filter, want) {
 		t.Fatalf("library filter: status=%d page=%d limit=%d filter=%+v body=%s",
 			response.Code, stub.page, stub.limit, stub.filter, response.Body)
@@ -148,7 +146,7 @@ func TestLibraryMoviesForwardEveryFilterDimension(t *testing.T) {
 func TestLibraryMoviesRejectUnusableFilterValues(t *testing.T) {
 	for _, query := range []string{
 		"?watched=maybe", "?tag_id=0", "?tag_id=abc", "?year=1899", "?year=3000",
-		"?group_id=0", "?actor_id=", "?series_id=", "?maker_id=", "?director_id=", "?limit=101",
+		"?group_id=0", "?actor_id=", "?limit=101", "?sort=random",
 	} {
 		t.Run(query, func(t *testing.T) {
 			stub := &libraryPageStub{}
@@ -165,9 +163,8 @@ func TestLibraryMoviesRejectUnusableFilterValues(t *testing.T) {
 func TestLibraryFilterOptionsEndpointReturnsTheMountedLibraryValues(t *testing.T) {
 	stub := &libraryOptionsStub{options: service.LibraryFilterOptions{
 		Tags:   []service.LibraryFilterOption{{ID: "1", Name: "Tag", Count: 2}},
-		Actors: []service.LibraryFilterOption{}, Series: []service.LibraryFilterOption{},
-		Makers: []service.LibraryFilterOption{}, Directors: []service.LibraryFilterOption{},
-		Years: []service.LibraryFilterOption{{ID: "2026", Name: "2026", Count: 1}},
+		Actors: []service.LibraryFilterOption{},
+		Years:  []service.LibraryFilterOption{{ID: "2026", Name: "2026", Count: 1}},
 	}}
 	router := NewRouter(Dependencies{Library: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	response := httptest.NewRecorder()
@@ -179,7 +176,7 @@ func TestLibraryFilterOptionsEndpointReturnsTheMountedLibraryValues(t *testing.T
 	if err := json.Unmarshal(response.Body.Bytes(), &fields); err != nil {
 		t.Fatalf("filter options are not an object: %s, %v", response.Body, err)
 	}
-	for _, dimension := range []string{"tags", "actors", "series", "makers", "directors", "years"} {
+	for _, dimension := range []string{"tags", "actors", "years"} {
 		if _, exists := fields[dimension]; !exists {
 			t.Errorf("filter options omit %s", dimension)
 		}

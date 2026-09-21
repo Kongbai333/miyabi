@@ -195,3 +195,58 @@ func TestPublishImageOnlyAcceptsMatchingCompletedFile(t *testing.T) {
 		})
 	}
 }
+
+// A video still is not a poster, so it must not claim the 2:3 slot.
+func TestFromFrameStoresAThumbnailAndFanartOnly(t *testing.T) {
+	frame := stdimage.NewRGBA(stdimage.Rect(0, 0, 96, 54))
+	for y := range 54 {
+		for x := range 96 {
+			frame.SetRGBA(x, y, color.RGBA{R: uint8(x * 2), G: uint8(y * 4), B: 30, A: 255})
+		}
+	}
+	var body bytes.Buffer
+	if err := png.Encode(&body, frame); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := NewCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	artwork, err := cache.FromFrame(body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artwork.Poster != "" {
+		t.Fatalf("a landscape still was stored as a poster: %q", artwork.Poster)
+	}
+	for name, url := range map[string]string{"thumbnail": artwork.Thumbnail, "fanart": artwork.Fanart} {
+		if !strings.HasPrefix(url, URLPrefix) {
+			t.Fatalf("%s was not cached: %q", name, url)
+		}
+		if saved, err := cache.ReadURL(url); err != nil || len(saved) == 0 {
+			t.Fatalf("%s is unreadable: %v", name, err)
+		}
+	}
+	// The card shows a bounded thumbnail, not the full frame.
+	thumbnail, err := cache.ReadURL(artwork.Thumbnail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, _, err := stdimage.Decode(bytes.NewReader(thumbnail))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size := decoded.Bounds().Size(); size.X != 480 {
+		t.Fatalf("thumbnail width = %d", size.X)
+	}
+}
+
+func TestFromFrameRejectsAStreamThatIsNotAnImage(t *testing.T) {
+	cache, err := NewCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.FromFrame([]byte("not an image")); err == nil {
+		t.Fatal("a non-image frame was cached")
+	}
+}

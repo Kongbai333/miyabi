@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -83,10 +84,13 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize data service: %w", err)
 	}
-	// Keep scans, metadata writes and directory sidecars ordered.
+	// Scans, metadata writes and directory sidecars share one worker so their
+	// writes stay ordered. A still only reads the stream and writes a local
+	// image, so it gets its own workers and never delays a scan.
 	pool := worker.NewPool(tasks, map[string]worker.Handler{
 		"scan": library.Scan, "scrape": scrape.Scrape, "cover": scrape.Cover,
 	}, 1, logger)
+	stills := worker.NewPool(tasks, map[string]worker.Handler{"frame": scrape.Frame}, 2, logger)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -117,9 +121,22 @@ func run(args []string) error {
 	monitorDone := make(chan struct{})
 	poolDone := make(chan struct{})
 	poolError := make(chan error, 1)
+	var poolsRunning sync.WaitGroup
+	for _, taskPool := range []*worker.Pool{pool, stills} {
+		poolsRunning.Add(1)
+		go func() {
+			defer poolsRunning.Done()
+			if err := taskPool.Run(ctx); err != nil {
+				select {
+				case poolError <- err:
+				default:
+				}
+			}
+		}()
+	}
 	go func() {
 		defer close(poolDone)
-		poolError <- pool.Run(ctx)
+		poolsRunning.Wait()
 	}()
 	go func() {
 		defer close(workerDone)

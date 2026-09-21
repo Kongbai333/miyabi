@@ -17,9 +17,7 @@ type LibraryManager interface {
 	RenameFavoriteGroup(context.Context, int, string) (service.FavoriteGroupItem, error)
 	DeleteFavoriteGroup(context.Context, int) error
 	MarkWatched(context.Context, int, service.WatchHistoryScope) (service.WatchSession, error)
-	WatchHistory(context.Context, int, int) (service.WatchHistoryPage, error)
 	SaveWatchProgress(context.Context, int, service.WatchProgress) error
-	RemoveWatchHistory(context.Context, service.WatchHistoryScope, []int) (int, error)
 	ClearWatchHistory(context.Context, service.WatchHistoryScope) (int, error)
 	StartScan(context.Context) (service.TaskInfo, error)
 }
@@ -48,23 +46,20 @@ func libraryArtworkHandler(artwork ArtworkReader) gin.HandlerFunc {
 }
 
 type libraryPageQuery struct {
-	Page        int      `form:"page,default=1" binding:"min=1"`
-	Limit       int      `form:"limit,default=20" binding:"min=1,max=100"`
-	TagIDs      []int    `form:"tag_id" binding:"omitempty,dive,min=1"`
-	ActorIDs    []string `form:"actor_id" binding:"omitempty,dive,min=1,max=64"`
-	SeriesIDs   []string `form:"series_id" binding:"omitempty,dive,min=1,max=64"`
-	MakerIDs    []string `form:"maker_id" binding:"omitempty,dive,min=1,max=64"`
-	DirectorIDs []string `form:"director_id" binding:"omitempty,dive,min=1,max=64"`
-	Years       []int    `form:"year" binding:"omitempty,dive,min=1900,max=2999"`
-	GroupIDs    []int    `form:"group_id" binding:"omitempty,dive,min=1"`
-	Watched     string   `form:"watched" binding:"omitempty,oneof=yes no"`
+	Page     int      `form:"page,default=1" binding:"min=1"`
+	Limit    int      `form:"limit,default=20" binding:"min=1,max=100"`
+	TagIDs   []int    `form:"tag_id" binding:"omitempty,dive,min=1"`
+	ActorIDs []string `form:"actor_id" binding:"omitempty,dive,min=1,max=64"`
+	Years    []int    `form:"year" binding:"omitempty,dive,min=1900,max=2999"`
+	GroupIDs []int    `form:"group_id" binding:"omitempty,dive,min=1"`
+	Watched  string   `form:"watched" binding:"omitempty,oneof=yes no"`
+	Sort     string   `form:"sort" binding:"omitempty,oneof=added watched"`
 }
 
 func (query libraryPageQuery) filter() service.LibraryFilter {
 	return service.LibraryFilter{
-		TagIDs: query.TagIDs, ActorIDs: query.ActorIDs, SeriesIDs: query.SeriesIDs,
-		MakerIDs: query.MakerIDs, DirectorIDs: query.DirectorIDs, Years: query.Years,
-		GroupIDs: query.GroupIDs, Watched: query.Watched,
+		TagIDs: query.TagIDs, ActorIDs: query.ActorIDs, Years: query.Years,
+		GroupIDs: query.GroupIDs, Watched: query.Watched, Sort: service.LibrarySort(query.Sort),
 	}
 }
 

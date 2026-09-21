@@ -10,14 +10,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
-	"github.com/ppxb/miyabi/internal/ent/favorite"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/predicate"
 	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 )
-
-const WatchHistoryPageSize = 20
 
 var ErrWatchHistorySourceChanged = domain.E(domain.KindConflict, "媒体目录已切换，请刷新观看历史后重试", nil)
 var ErrInvalidWatchProgress = domain.E(domain.KindInvalid, "观看进度无效", nil)
@@ -43,32 +40,34 @@ type WatchResume struct {
 	Duration float64 `json:"duration"`
 }
 
+// watchProgress returns the saved playback position of each movie in the
+// mounted source, keyed by movie id. Rows that were never played carry no
+// progress, so the card can leave the bar off entirely.
+func (service *LibraryService) watchProgress(ctx context.Context, source LibrarySource, movieIDs []int) (map[int]*LibraryProgress, error) {
+	result := make(map[int]*LibraryProgress, len(movieIDs))
+	if len(movieIDs) == 0 {
+		return result, nil
+	}
+	rows, err := service.database.WatchHistory.Query().
+		Where(watchhistory.AccountIDEQ(source.AccountID), watchhistory.RootIDEQ(source.Directory.ID),
+			watchhistory.MovieIDIn(movieIDs...), watchhistory.DurationGT(0)).
+		Select(watchhistory.FieldMovieID, watchhistory.FieldPosition, watchhistory.FieldDuration).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query watch progress: %w", err)
+	}
+	for _, row := range rows {
+		result[row.MovieID] = &LibraryProgress{Position: row.Position, Duration: row.Duration}
+	}
+	return result, nil
+}
+
 type WatchProgress struct {
 	SessionID string  `json:"session_id" binding:"required,uuid"`
 	FileID    string  `json:"file_id" binding:"required,max=128"`
 	Position  float64 `json:"position" binding:"gte=0"`
 	Duration  float64 `json:"duration" binding:"gt=0"`
 	Version   int     `json:"version" binding:"min=1"`
-}
-
-type WatchHistoryItem struct {
-	ID        int       `json:"id"`
-	MovieID   int       `json:"movie_id"`
-	Code      string    `json:"code"`
-	Title     string    `json:"title"`
-	Cover     *string   `json:"cover,omitempty"`
-	Poster    *string   `json:"poster,omitempty"`
-	WatchedAt time.Time `json:"watched_at"`
-	Position  float64   `json:"position"`
-	Duration  float64   `json:"duration"`
-}
-
-type WatchHistoryPage struct {
-	Source  *LibrarySource     `json:"source,omitempty"`
-	Items   []WatchHistoryItem `json:"items"`
-	Total   int                `json:"total"`
-	Page    int                `json:"page"`
-	HasMore bool               `json:"has_more"`
 }
 
 func historyScope(source LibrarySource) predicate.WatchHistory {
@@ -129,51 +128,6 @@ func (service *LibraryService) MarkWatched(ctx context.Context, movieID int, sco
 	return result, nil
 }
 
-func (service *LibraryService) WatchHistory(ctx context.Context, page, groupID int) (WatchHistoryPage, error) {
-	result := WatchHistoryPage{Items: []WatchHistoryItem{}, Page: page}
-	source, err := loadLibrarySource(ctx, service.database)
-	if err != nil || source == nil {
-		return result, err
-	}
-	result.Source = source
-	// A group filter narrows the history to movies starred in that group.
-	movieScope := movie.HasFilesWith(libraryFiles(*source))
-	if groupID > 0 {
-		movieScope = movie.And(movieScope, movie.HasFavoritesWith(favorite.GroupIDEQ(groupID)))
-	}
-	query := service.database.WatchHistory.Query().Where(historyScope(*source),
-		watchhistory.HasMovieWith(movieScope))
-	result.Total, err = query.Clone().Count(ctx)
-	if err != nil {
-		return result, fmt.Errorf("count watch history: %w", err)
-	}
-	if result.Total == 0 {
-		return result, nil
-	}
-	records, err := query.Select(watchhistory.FieldID, watchhistory.FieldMovieID, watchhistory.FieldWatchedAt,
-		watchhistory.FieldPosition, watchhistory.FieldDuration).
-		Order(ent.Desc(watchhistory.FieldWatchedAt), ent.Desc(watchhistory.FieldID)).
-		Offset((page - 1) * WatchHistoryPageSize).Limit(WatchHistoryPageSize).
-		WithMovie(func(query *ent.MovieQuery) {
-			query.Select(movie.FieldID, movie.FieldCode, movie.FieldTitle, movie.FieldCover, movie.FieldPoster)
-		}).All(ctx)
-	if err != nil {
-		return result, fmt.Errorf("list watch history: %w", err)
-	}
-	for _, record := range records {
-		film, err := record.Edges.MovieOrErr()
-		if err != nil {
-			return result, err
-		}
-		result.Items = append(result.Items, WatchHistoryItem{
-			ID: record.ID, MovieID: film.ID, Code: film.Code, Title: film.Title, Cover: film.Cover, Poster: film.Poster,
-			WatchedAt: record.WatchedAt, Position: record.Position, Duration: record.Duration,
-		})
-	}
-	result.HasMore = (page-1)*WatchHistoryPageSize+len(result.Items) < result.Total
-	return result, nil
-}
-
 func (service *LibraryService) SaveWatchProgress(ctx context.Context, id int, progress WatchProgress) error {
 	if progress.SessionID == "" || progress.FileID == "" || progress.Version < 1 || progress.Position < 0 ||
 		progress.Duration <= 0 || math.IsNaN(progress.Position) || math.IsInf(progress.Position, 0) ||
@@ -223,18 +177,9 @@ func (service *LibraryService) SaveWatchProgress(ctx context.Context, id int, pr
 	return nil
 }
 
-func (service *LibraryService) RemoveWatchHistory(ctx context.Context, scope WatchHistoryScope, ids []int) (int, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	return service.deleteWatchHistory(ctx, scope, watchhistory.IDIn(ids...))
-}
-
+// ClearWatchHistory drops every progress entry of the mounted source. Movies
+// and their watched badges are kept, so the library grid only loses its bars.
 func (service *LibraryService) ClearWatchHistory(ctx context.Context, scope WatchHistoryScope) (int, error) {
-	return service.deleteWatchHistory(ctx, scope)
-}
-
-func (service *LibraryService) deleteWatchHistory(ctx context.Context, scope WatchHistoryScope, filters ...predicate.WatchHistory) (int, error) {
 	count := 0
 	err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
 		source, err := loadLibrarySource(ctx, tx.Client())
@@ -244,7 +189,7 @@ func (service *LibraryService) deleteWatchHistory(ctx context.Context, scope Wat
 		if source == nil || source.AccountID != scope.AccountID || source.Directory.ID != scope.DirectoryID {
 			return ErrWatchHistorySourceChanged
 		}
-		count, err = tx.WatchHistory.Delete().Where(historyScope(*source)).Where(filters...).Exec(ctx)
+		count, err = tx.WatchHistory.Delete().Where(historyScope(*source)).Exec(ctx)
 		return err
 	})
 	if err != nil {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,8 @@ type panStub struct {
 	addOffline     func(context.Context, string, string, string) (string, error)
 	removeOffline  func(context.Context, string, string) error
 	offlineTasks   func(context.Context, string, int) (pan.OfflinePage, error)
+	playURL        func(context.Context, string, string) ([]pan.PlaySource, error)
+	openMedia      func(context.Context, string, string, http.Header) (*http.Response, error)
 }
 
 func (client *panStub) Close() {
@@ -72,6 +75,13 @@ func (client *panStub) RemoveOffline(ctx context.Context, token, hash string) er
 
 func (client *panStub) OfflineTasks(ctx context.Context, token string, page int) (pan.OfflinePage, error) {
 	return client.offlineTasks(ctx, token, page)
+}
+func (client *panStub) PlayURL(ctx context.Context, token, pickCode string) ([]pan.PlaySource, error) {
+	return client.playURL(ctx, token, pickCode)
+}
+
+func (client *panStub) OpenMedia(ctx context.Context, method, address string, headers http.Header) (*http.Response, error) {
+	return client.openMedia(ctx, method, address, headers)
 }
 
 func panTestTokens(prefix string) pan.Tokens {

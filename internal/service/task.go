@@ -335,6 +335,10 @@ func (service *TaskService) Finish(ctx context.Context, id int, runError error) 
 					movie.HasFilesWith(libraryFiles(input.Source))).SetScrapeStatus(movie.ScrapeStatusFailed).Exec(ctx); err != nil {
 					return err
 				}
+				// A failed scrape is exactly the case the card has no image for.
+				if err := enqueueFrameTask(ctx, tx, input); err != nil {
+					return err
+				}
 			}
 		} else {
 			update.SetStatus(task.StatusDone).SetProgress(100).ClearError()

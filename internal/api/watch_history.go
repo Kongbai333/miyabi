@@ -7,25 +7,6 @@ import (
 	"github.com/ppxb/miyabi/internal/service"
 )
 
-func libraryHistoryHandler(library LibraryManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var query struct {
-			Page    int `form:"page,default=1" binding:"min=1,max=100000000"`
-			GroupID int `form:"group_id" binding:"min=0"`
-		}
-		if err := c.ShouldBindQuery(&query); err != nil {
-			c.Error(BadRequest(err))
-			return
-		}
-		page, err := library.WatchHistory(c.Request.Context(), query.Page, query.GroupID)
-		if err != nil {
-			c.Error(err)
-			return
-		}
-		c.JSON(http.StatusOK, page)
-	}
-}
-
 func libraryHistoryProgressHandler(library LibraryManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var uri struct {
@@ -45,25 +26,6 @@ func libraryHistoryProgressHandler(library LibraryManager) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, nil)
-	}
-}
-
-func libraryHistoryRemoveHandler(library LibraryManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var request struct {
-			service.WatchHistoryScope
-			IDs []int `json:"ids" binding:"required,min=1,max=100,unique,dive,min=1"`
-		}
-		if err := c.ShouldBindJSON(&request); err != nil {
-			c.Error(BadRequest(err))
-			return
-		}
-		count, err := library.RemoveWatchHistory(c.Request.Context(), request.WatchHistoryScope, request.IDs)
-		if err != nil {
-			c.Error(err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"removed": count})
 	}
 }
 

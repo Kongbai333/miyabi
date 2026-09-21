@@ -4,9 +4,12 @@ import type { LibraryMovie } from '@/api/library'
 import { MovieCard } from '@/components/movie'
 import { Button } from '@/components/ui/button'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
+import { Progress } from '@/components/ui/progress'
+import { formatWatchTime, watchProgressPercent } from '@/lib/watch-progress'
 import { useUIStore } from '@/stores/ui'
 import { FavoriteDialog } from './favorite-dialog'
 import { LibraryMovieHoverDetails } from './movie-hover-details'
+import { libraryMovieSummary } from './movie-metadata'
 import { LibraryMovieStatus } from './movie-status'
 import { useDesktopHover } from './use-desktop-hover'
 
@@ -24,6 +27,32 @@ export function LibraryMovieCard({ movie }: { movie: LibraryMovie }) {
 function LibraryMovieCardContent({ movie, canHover }: { movie: LibraryMovie; canHover: boolean }) {
   const openPlayer = useUIStore(state => state.openPlayer)
   const [open, setOpen] = useState(false)
+
+  // The bar sits on the cover so a half-watched movie is recognisable without
+  // opening it; a movie that was only opened carries no progress at all.
+  const progress = movie.progress
+  const coverOverlay = progress ? (
+    <div className="absolute right-2 bottom-2 left-2">
+      <Progress
+        value={watchProgressPercent(progress.position, progress.duration)}
+        variant="success"
+        className="h-1.5 bg-black/40"
+      />
+    </div>
+  ) : undefined
+  const progressLabel = progress ? (
+    <span className="tabular-nums">
+      {formatWatchTime(progress.position)} / {formatWatchTime(progress.duration)}
+    </span>
+  ) : null
+  const summary = libraryMovieSummary(movie)
+  const description =
+    summary || progressLabel ? (
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        {summary ? <span>{summary}</span> : null}
+        {progressLabel}
+      </div>
+    ) : undefined
 
   // The star sits outside the play button: a button cannot nest inside another.
   const star = (
@@ -50,7 +79,12 @@ function LibraryMovieCardContent({ movie, canHover }: { movie: LibraryMovie; can
               openPlayer(movie.id)
             }}
           >
-            <MovieCard movie={movie} titleTooltip={!canHover}>
+            <MovieCard
+              movie={movie}
+              titleTooltip={!canHover}
+              coverOverlay={coverOverlay}
+              description={description}
+            >
               <LibraryMovieStatus movie={movie} />
             </MovieCard>
           </Button>

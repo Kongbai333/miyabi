@@ -19,6 +19,7 @@
       "release_date": "2026-08-01",
       "duration": 120,
       "rating": 4.5,
+      "size": 2147483648,
       "director": {
         "id": "director-1",
         "name": "Director"
@@ -48,7 +49,11 @@
       "watched": true,
       "favorite_group_ids": [
         4
-      ]
+      ],
+      "progress": {
+        "position": 61.5,
+        "duration": 7200
+      }
     },
     {
       "id": 8,
@@ -56,6 +61,7 @@
       "title": "",
       "duration": 0,
       "rating": 0,
+      "size": 1024,
       "actors": [],
       "tags": [],
       "scrape_status": "failed",
