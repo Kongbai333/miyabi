@@ -18,7 +18,9 @@ export function useMovieState(movie?: MovieIdentity) {
 }
 
 // Opening a detail page is what marks a movie as viewed. The write is
-// best-effort: a failure must not interrupt reading the detail page.
+// best-effort: a failure must not interrupt reading the detail page. Leaving
+// the page is the common case, so the request outlives the document instead of
+// being cancelled with it.
 export function useMarkMovieViewed() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -26,7 +28,7 @@ export function useMarkMovieViewed() {
       apiPut<{ id: string; viewed: boolean }>(
         `/api/discover/movies/${encodeURIComponent(id)}/viewed`,
         {},
-        { signal: AbortSignal.timeout(10_000) }
+        { keepalive: true, signal: AbortSignal.timeout(10_000) }
       ),
     onSuccess: (_result, id) =>
       queryClient.invalidateQueries({ queryKey: movieStateKeys.movie(id) })
