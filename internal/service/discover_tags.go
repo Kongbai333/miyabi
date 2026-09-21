@@ -4,13 +4,13 @@ import (
 	"context"
 	"slices"
 
-	"github.com/ppxb/miyabi/internal/javdb"
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 // Catalogue tag IDs are global. Some details include unnamed tags whose
 // definitions live in another section's taxonomy; complete them before caching.
-func (service *DiscoverService) completeMovieTags(ctx context.Context, detail *javdb.MovieDetail) error {
-	if detail.Zone == javdb.ZoneUnknown {
+func (service *DiscoverService) completeMovieTags(ctx context.Context, detail *domain.MovieDetail) error {
+	if detail.Zone == domain.ZoneUnknown {
 		// No supported taxonomy can be selected. Keep names supplied by the
 		// detail without making classification-dependent requests.
 		detail.Tags = namedMovieTags(detail.Tags)
@@ -25,7 +25,7 @@ func (service *DiscoverService) completeMovieTags(ctx context.Context, detail *j
 	if len(missing) == 0 {
 		return nil
 	}
-	zones := []javdb.Zone{detail.Zone, javdb.ZoneCensored, javdb.ZoneUncensored, javdb.ZoneWestern, javdb.ZoneFC2, javdb.ZoneAnime}
+	zones := []domain.Zone{detail.Zone, domain.ZoneCensored, domain.ZoneUncensored, domain.ZoneWestern, domain.ZoneFC2, domain.ZoneAnime}
 	for index, zone := range zones {
 		if index > 0 && zone == detail.Zone {
 			continue
@@ -34,10 +34,10 @@ func (service *DiscoverService) completeMovieTags(ctx context.Context, detail *j
 		if err != nil {
 			return err
 		}
-		definitions := make(map[string]javdb.Tag)
+		definitions := make(map[string]domain.Tag)
 		for _, category := range categories {
 			for _, tag := range category.Tags {
-				definitions[tag.ID] = javdb.Tag{Name: tag.Name, CategoryID: category.ID}
+				definitions[tag.ID] = domain.Tag{Name: tag.Name, CategoryID: category.ID}
 			}
 		}
 		pending := missing[:0]
@@ -67,6 +67,6 @@ func (service *DiscoverService) completeMovieTags(ctx context.Context, detail *j
 	return nil
 }
 
-func namedMovieTags(tags []javdb.Tag) []javdb.Tag {
-	return slices.DeleteFunc(tags, func(tag javdb.Tag) bool { return tag.Name == "" })
+func namedMovieTags(tags []domain.Tag) []domain.Tag {
+	return slices.DeleteFunc(tags, func(tag domain.Tag) bool { return tag.Name == "" })
 }

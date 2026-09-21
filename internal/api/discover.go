@@ -5,17 +5,18 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/service"
 )
 
 type Discoverer interface {
-	Search(context.Context, string, javdb.SearchOptions) ([]service.DiscoverMovie, error)
-	Browse(context.Context, javdb.BrowseOptions) ([]service.DiscoverMovie, error)
+	Search(context.Context, string, domain.SearchOptions) ([]service.DiscoverMovie, error)
+	Browse(context.Context, domain.BrowseOptions) ([]service.DiscoverMovie, error)
 	MovieDetail(context.Context, string) (service.DiscoverMovieDetail, error)
 	MovieStates(context.Context, []service.MovieIdentity) ([]service.DiscoverMovieState, error)
 	Magnets(context.Context, string) ([]service.DiscoverMagnet, error)
-	Tags(context.Context, javdb.Zone) ([]javdb.TagCategory, error)
+	Tags(context.Context, domain.Zone) ([]domain.TagCategory, error)
 	Media(context.Context, string) (javdb.Media, error)
 	Route() service.JavDBRouteStatus
 	Reselect(context.Context) (service.JavDBRouteStatus, error)
@@ -86,7 +87,7 @@ func discoverSearchHandler(discover Discoverer) gin.HandlerFunc {
 			c.Error(BadRequest(err))
 			return
 		}
-		movies, err := discover.Search(c.Request.Context(), query.Query, javdb.SearchOptions{
+		movies, err := discover.Search(c.Request.Context(), query.Query, domain.SearchOptions{
 			Page:  query.Page,
 			Limit: query.Limit,
 		})
@@ -105,9 +106,9 @@ func discoverBrowseHandler(discover Discoverer) gin.HandlerFunc {
 			c.Error(BadRequest(err))
 			return
 		}
-		movies, err := discover.Browse(c.Request.Context(), javdb.BrowseOptions{
-			Zone:       javdb.Zone(query.Zone),
-			EntityType: javdb.EntityType(query.EntityType),
+		movies, err := discover.Browse(c.Request.Context(), domain.BrowseOptions{
+			Zone:       domain.Zone(query.Zone),
+			EntityType: domain.EntityType(query.EntityType),
 			EntityID:   query.EntityID,
 			Main:       query.Main,
 			TagIDs:     query.TagIDs,
@@ -149,7 +150,7 @@ func discoverTagsHandler(discover Discoverer) gin.HandlerFunc {
 			c.Error(BadRequest(err))
 			return
 		}
-		categories, err := discover.Tags(c.Request.Context(), javdb.Zone(query.Zone))
+		categories, err := discover.Tags(c.Request.Context(), domain.Zone(query.Zone))
 		if err != nil {
 			c.Error(err)
 			return

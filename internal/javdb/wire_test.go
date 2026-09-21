@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 func TestDecodeEnvelope(t *testing.T) {
@@ -140,19 +142,19 @@ func TestMovieDetailSkipsInvalidRecommendationsAndReportsOptionalFields(t *testi
 		t.Fatal(err)
 	}
 	if detail.ID != "main" || detail.Code != "ABP-001" || detail.Title != "Fixture title" ||
-		detail.Cover != "https://media.example/cover.jpg" || detail.Zone != ZoneUnknown {
+		detail.Cover != "https://media.example/cover.jpg" || detail.Zone != domain.ZoneUnknown {
 		t.Fatalf("optional metadata damaged the main detail: %#v", detail)
 	}
 	if len(detail.Actors) != 1 || detail.Actors[0].ID != "actor-1" ||
 		detail.Actors[0].Name != "Fixture actor" || detail.Actors[0].Gender != "unknown" {
 		t.Fatalf("unknown gender damaged the actor: %#v", detail.Actors)
 	}
-	wantActorMovies := []MovieReference{
+	wantActorMovies := []domain.MovieReference{
 		{ID: "first", Code: "ABP-002", Thumbnail: "https://media.example/first.jpg"},
 		{ID: "last", Code: "KNB-M014"},
 	}
 	if !reflect.DeepEqual(detail.ActorMovies, wantActorMovies) ||
-		!reflect.DeepEqual(detail.RelatedMovies, []MovieReference{{ID: "related", Code: "ABP-005"}}) {
+		!reflect.DeepEqual(detail.RelatedMovies, []domain.MovieReference{{ID: "related", Code: "ABP-005"}}) {
 		t.Fatalf("valid recommendations were lost or reordered: %#v, %#v", detail.ActorMovies, detail.RelatedMovies)
 	}
 	fields := make(map[string]int)
@@ -192,17 +194,17 @@ func TestMovieDetailReturnsEmptyRecommendationArrays(t *testing.T) {
 func TestMovieDetailMapsMissingAndUnknownTypesWithoutGuessing(t *testing.T) {
 	for _, test := range []struct {
 		field string
-		want  Zone
+		want  domain.Zone
 	}{
-		{"", ZoneUnknown},
-		{`,"type":null`, ZoneUnknown},
-		{`,"type":9`, ZoneUnknown},
-		{`,"type":-1`, ZoneUnknown},
-		{`,"type":0`, ZoneCensored},
-		{`,"type":1`, ZoneUncensored},
-		{`,"type":2`, ZoneWestern},
-		{`,"type":3`, ZoneFC2},
-		{`,"type":4`, ZoneAnime},
+		{"", domain.ZoneUnknown},
+		{`,"type":null`, domain.ZoneUnknown},
+		{`,"type":9`, domain.ZoneUnknown},
+		{`,"type":-1`, domain.ZoneUnknown},
+		{`,"type":0`, domain.ZoneCensored},
+		{`,"type":1`, domain.ZoneUncensored},
+		{`,"type":2`, domain.ZoneWestern},
+		{`,"type":3`, domain.ZoneFC2},
+		{`,"type":4`, domain.ZoneAnime},
 	} {
 		t.Run(test.field, func(t *testing.T) {
 			transport := &fixtureTransport{responses: map[string][]byte{
@@ -255,7 +257,7 @@ func TestSearchAndResolutionRetainMoviesWithUnknownGender(t *testing.T) {
 		]}}`),
 	}}
 	client := clientWithTransport(transport)
-	movies, err := client.Search(t.Context(), "ABP", SearchOptions{})
+	movies, err := client.Search(t.Context(), "ABP", domain.SearchOptions{})
 	if err != nil || len(movies) != 2 || movies[0].ID != "first" || movies[1].ID != "second" ||
 		movies[0].Actors[0].Gender != "unknown" || movies[1].Actors[0].Gender != "unknown" {
 		t.Fatalf("unknown gender damaged the search page: %#v, %v", movies, err)

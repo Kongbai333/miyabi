@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ppxb/miyabi/internal/codeid"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	mediaimage "github.com/ppxb/miyabi/internal/image"
@@ -26,6 +27,10 @@ func (service *ScrapeService) Cover(ctx context.Context, job TaskJob) error {
 		return err
 	}
 	defer service.artwork.Unlock()
+	return service.processCover(ctx, job, input)
+}
+
+func (service *ScrapeService) processCover(ctx context.Context, job TaskJob, input coverPayload) error {
 	input.Code = codeid.Normalize(input.Code)
 	input.Document.Code = codeid.Normalize(input.Document.Code)
 	version, err := service.begin(ctx, input.metadataPayload)
@@ -51,7 +56,7 @@ func (service *ScrapeService) Cover(ctx context.Context, job TaskJob) error {
 		}
 	default:
 		if input.CoverURL == "" {
-			return fmt.Errorf("JavDB 未返回影片封面")
+			return domain.E(domain.KindNotFound, "JavDB 未返回影片封面", nil)
 		}
 		media, err := service.discover.Media(ctx, input.CoverURL)
 		if err != nil {
@@ -176,7 +181,7 @@ func (service *ScrapeService) writeSidecars(ctx context.Context, input coverPayl
 			if strings.EqualFold(existing.SHA1, pan.SHA1(item.body)) {
 				continue
 			}
-			return snapshot, fmt.Errorf("媒体目录已存在不同内容的 %s，已保留原文件", item.name)
+			return snapshot, domain.E(domain.KindConflict, fmt.Sprintf("媒体目录已存在不同内容的 %s，已保留原文件", item.name), nil)
 		}
 		if err := service.uploadSidecar(ctx, input.Source, version, directory, item.name, item.body); err != nil {
 			return snapshot, fmt.Errorf("write %s to 115: %w", item.name, err)
@@ -210,7 +215,7 @@ func verifyCoverOrigin(input coverPayload, directoryID string, current nfo.Movie
 		return err
 	}
 	if !bytes.Equal(before, after) || !strings.EqualFold(posterSHA, origin.Poster.SHA1) || !strings.EqualFold(fanartSHA, origin.Fanart.SHA1) {
-		return fmt.Errorf("NFO 或图片在处理期间发生变化，请重新扫描")
+		return domain.E(domain.KindConflict, "NFO 或图片在处理期间发生变化，请重新扫描", nil)
 	}
 	return nil
 }
@@ -231,14 +236,14 @@ func (service *ScrapeService) uploadSidecar(ctx context.Context, source LibraryS
 				return struct{}{}, err
 			}
 			if info.ParentID != directory.ID || !withinSource(info, source) {
-				return struct{}{}, fmt.Errorf("视频已移动，请重新扫描")
+				return struct{}{}, domain.E(domain.KindConflict, "视频已移动，请重新扫描", nil)
 			}
 			if err := service.library.checkScanSource(source, version); err != nil {
 				return struct{}{}, err
 			}
 			return struct{}{}, service.library.drive.client.UploadMetadata(ctx, token, directory.ID, name, body)
 		}
-		return struct{}{}, fmt.Errorf("没有可写入元数据的视频目录")
+		return struct{}{}, domain.E(domain.KindInvalid, "没有可写入元数据的视频目录", nil)
 	})
 	return err
 }

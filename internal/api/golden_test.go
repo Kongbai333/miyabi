@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent/monitor"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/task"
@@ -31,45 +32,45 @@ type goldenDiscover struct {
 	Discoverer
 }
 
-func goldenMovie() javdb.Movie {
-	return javdb.Movie{
+func goldenMovie() domain.Movie {
+	return domain.Movie{
 		ID: "movie-exact", Code: "ABP-123", Title: "Localized title", OriginTitle: "Original title",
 		ReleaseDate: "2026-08-01", Duration: 120, Rating: 4.5,
 		Thumbnail: "https://media.example/thumb.jpg", Cover: "https://media.example/cover.jpg",
-		PreviewImages: []javdb.PreviewImage{{Thumbnail: "https://media.example/preview-thumb.jpg", Original: "https://media.example/preview.jpg"}},
+		PreviewImages: []domain.PreviewImage{{Thumbnail: "https://media.example/preview-thumb.jpg", Original: "https://media.example/preview.jpg"}},
 		PreviewVideo:  "https://media.example/preview.m3u8",
 		MagnetsCount:  3, HasSubtitle: true, HasPreview: true,
-		Actors: []javdb.Actor{
+		Actors: []domain.Actor{
 			{ID: "actor-1", Name: "Actor", NameZHT: "演員", Gender: "female", Avatar: "https://media.example/actor.jpg"},
 			{ID: "actor-2", Name: "Actor Two", Gender: "male", Avatar: "https://media.example/actor-two.jpg"},
 		},
-		Tags:     []javdb.Tag{{ID: "tag-1", Name: "Tag", NameZHT: "標籤", CategoryID: "category-1"}},
-		Series:   &javdb.Series{ID: "series-1", Name: "Series"},
-		Maker:    &javdb.Maker{ID: "maker-1", Name: "Maker"},
-		Director: &javdb.Director{ID: "director-1", Name: "Director"},
+		Tags:     []domain.Tag{{ID: "tag-1", Name: "Tag", NameZHT: "標籤", CategoryID: "category-1"}},
+		Series:   &domain.Series{ID: "series-1", Name: "Series"},
+		Maker:    &domain.Maker{ID: "maker-1", Name: "Maker"},
+		Director: &domain.Director{ID: "director-1", Name: "Director"},
 	}
 }
 
-func (goldenDiscover) Browse(context.Context, javdb.BrowseOptions) ([]service.DiscoverMovie, error) {
-	bare := javdb.Movie{ID: "movie-near", Code: "ABP-124", Title: "Similar result", ReleaseDate: "2027-01-01",
+func (goldenDiscover) Browse(context.Context, domain.BrowseOptions) ([]service.DiscoverMovie, error) {
+	bare := domain.Movie{ID: "movie-near", Code: "ABP-124", Title: "Similar result", ReleaseDate: "2027-01-01",
 		Thumbnail: "https://media.example/thumb-near.jpg", Cover: "https://media.example/cover-near.jpg",
-		PreviewImages: []javdb.PreviewImage{}, Actors: []javdb.Actor{}, Tags: []javdb.Tag{}}
+		PreviewImages: []domain.PreviewImage{}, Actors: []domain.Actor{}, Tags: []domain.Tag{}}
 	return []service.DiscoverMovie{
 		{Movie: goldenMovie(), LibraryID: 7, State: service.MovieInLibrary, ReleaseStatus: service.ReleaseReleased},
 		{Movie: bare, State: service.MovieNotInLibrary, ReleaseStatus: service.ReleaseUpcoming},
 	}, nil
 }
 
-func (stub goldenDiscover) Search(context.Context, string, javdb.SearchOptions) ([]service.DiscoverMovie, error) {
-	return stub.Browse(context.Background(), javdb.BrowseOptions{})
+func (stub goldenDiscover) Search(context.Context, string, domain.SearchOptions) ([]service.DiscoverMovie, error) {
+	return stub.Browse(context.Background(), domain.BrowseOptions{})
 }
 
 func (goldenDiscover) MovieDetail(context.Context, string) (service.DiscoverMovieDetail, error) {
 	return service.DiscoverMovieDetail{
 		DiscoverMovie: service.DiscoverMovie{Movie: goldenMovie(), State: service.MovieSaving, ReleaseStatus: service.ReleaseReleased},
-		Zone:          javdb.ZoneCensored,
-		ActorMovies:   []javdb.MovieReference{{ID: "actor-movie-1", Code: "ABP-124", Thumbnail: "https://media.example/actor-movie.jpg"}},
-		RelatedMovies: []javdb.MovieReference{{ID: "related-movie-1", Code: "SONE-001", Thumbnail: "https://media.example/related-movie.jpg"}},
+		Zone:          domain.ZoneCensored,
+		ActorMovies:   []domain.MovieReference{{ID: "actor-movie-1", Code: "ABP-124", Thumbnail: "https://media.example/actor-movie.jpg"}},
+		RelatedMovies: []domain.MovieReference{{ID: "related-movie-1", Code: "SONE-001", Thumbnail: "https://media.example/related-movie.jpg"}},
 	}, nil
 }
 
@@ -83,15 +84,15 @@ func (goldenDiscover) MovieStates(context.Context, []service.MovieIdentity) ([]s
 
 func (goldenDiscover) Magnets(context.Context, string) ([]service.DiscoverMagnet, error) {
 	return []service.DiscoverMagnet{
-		{Magnet: javdb.Magnet{Hash: "0000000000000000000000000000000000000003", Name: "HD subtitle fixture", Size: 1024 << 20,
+		{Magnet: domain.Magnet{Hash: "0000000000000000000000000000000000000003", Name: "HD subtitle fixture", Size: 1024 << 20,
 			HasSubtitle: true, HD: true, FilesCount: 3, CreatedAt: "2026-08-03"}, URI: "magnet:?xt=urn:btih:0000000000000000000000000000000000000003"},
-		{Magnet: javdb.Magnet{Hash: "0000000000000000000000000000000000000002", Name: "HD fixture", Size: 16384 << 20,
+		{Magnet: domain.Magnet{Hash: "0000000000000000000000000000000000000002", Name: "HD fixture", Size: 16384 << 20,
 			HD: true, FilesCount: 2, CreatedAt: "2026-08-02"}, URI: "magnet:?xt=urn:btih:0000000000000000000000000000000000000002"},
 	}, nil
 }
 
-func (goldenDiscover) Tags(context.Context, javdb.Zone) ([]javdb.TagCategory, error) {
-	return []javdb.TagCategory{{ID: "category-1", Name: "主題", Tags: []javdb.TagOption{{ID: "tag-1", Name: "Tag"}, {ID: "tag-2", Name: "Other"}}}}, nil
+func (goldenDiscover) Tags(context.Context, domain.Zone) ([]domain.TagCategory, error) {
+	return []domain.TagCategory{{ID: "category-1", Name: "主題", Tags: []domain.TagOption{{ID: "tag-1", Name: "Tag"}, {ID: "tag-2", Name: "Other"}}}}, nil
 }
 
 func (goldenDiscover) Route() service.JavDBRouteStatus {

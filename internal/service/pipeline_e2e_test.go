@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/database"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/task"
@@ -177,7 +178,7 @@ func (drive *fakeDrive) uploadedNames(directoryID string) []string {
 type fakeCatalogue struct {
 	mu      sync.Mutex
 	ids     map[string]string
-	details map[string]javdb.MovieDetail
+	details map[string]domain.MovieDetail
 	cover   []byte
 	calls   map[string]int
 }
@@ -193,28 +194,28 @@ func (catalogue *fakeCatalogue) count(name string) {
 
 func (catalogue *fakeCatalogue) Close() {}
 
-func (catalogue *fakeCatalogue) Search(context.Context, string, javdb.SearchOptions) ([]javdb.Movie, error) {
+func (catalogue *fakeCatalogue) Search(context.Context, string, domain.SearchOptions) ([]domain.Movie, error) {
 	catalogue.count("search")
 	return nil, fmt.Errorf("search is not part of this fixture")
 }
 
-func (catalogue *fakeCatalogue) Browse(context.Context, javdb.BrowseOptions) ([]javdb.Movie, error) {
+func (catalogue *fakeCatalogue) Browse(context.Context, domain.BrowseOptions) ([]domain.Movie, error) {
 	catalogue.count("browse")
 	return nil, fmt.Errorf("browse is not part of this fixture")
 }
 
-func (catalogue *fakeCatalogue) MovieDetail(_ context.Context, id string) (javdb.MovieDetail, error) {
+func (catalogue *fakeCatalogue) MovieDetail(_ context.Context, id string) (domain.MovieDetail, error) {
 	catalogue.count("detail")
 	detail, ok := catalogue.details[id]
 	if !ok {
-		return javdb.MovieDetail{}, &javdb.APIError{Message: "movie not found"}
+		return domain.MovieDetail{}, &javdb.APIError{Message: "movie not found"}
 	}
 	return detail, nil
 }
 
-func (catalogue *fakeCatalogue) Magnets(context.Context, string) ([]javdb.Magnet, error) {
+func (catalogue *fakeCatalogue) Magnets(context.Context, string) ([]domain.Magnet, error) {
 	catalogue.count("magnets")
-	return []javdb.Magnet{}, nil
+	return []domain.Magnet{}, nil
 }
 
 func (catalogue *fakeCatalogue) FetchMedia(_ context.Context, rawURL string) (javdb.Media, error) {
@@ -225,9 +226,9 @@ func (catalogue *fakeCatalogue) FetchMedia(_ context.Context, rawURL string) (ja
 	return javdb.Media{ContentType: "image/jpeg", Body: catalogue.cover}, nil
 }
 
-func (catalogue *fakeCatalogue) Tags(context.Context, javdb.Zone) ([]javdb.TagCategory, error) {
+func (catalogue *fakeCatalogue) Tags(context.Context, domain.Zone) ([]domain.TagCategory, error) {
 	catalogue.count("tags")
-	return []javdb.TagCategory{}, nil
+	return []domain.TagCategory{}, nil
 }
 
 func (catalogue *fakeCatalogue) ResolveMovieID(_ context.Context, code string) (string, error) {
@@ -306,7 +307,7 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 		t.Fatal(err)
 	}
 	discover.javdb.Close()
-	catalogue := &fakeCatalogue{ids: make(map[string]string), details: make(map[string]javdb.MovieDetail), cover: fixtureJPEG(t, 600, 400)}
+	catalogue := &fakeCatalogue{ids: make(map[string]string), details: make(map[string]domain.MovieDetail), cover: fixtureJPEG(t, 600, 400)}
 	discover.javdb = catalogue
 	library := NewLibraryService(store.Client, pan, tasks, images)
 	return &pipelineFixture{
@@ -315,7 +316,7 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 	}
 }
 
-func (fixture *pipelineFixture) addCatalogueMovie(detail javdb.MovieDetail) {
+func (fixture *pipelineFixture) addCatalogueMovie(detail domain.MovieDetail) {
 	fixture.catalogue.ids[detail.Code] = detail.ID
 	fixture.catalogue.details[detail.ID] = detail
 }
@@ -356,22 +357,22 @@ func (fixture *pipelineFixture) tasksOfType(t *testing.T, kind string) []*ent.Ta
 	return records
 }
 
-func fixtureDetail() javdb.MovieDetail {
-	return javdb.MovieDetail{
-		Movie: javdb.Movie{
+func fixtureDetail() domain.MovieDetail {
+	return domain.MovieDetail{
+		Movie: domain.Movie{
 			ID: "movie-exact", Code: "ABP-123", Title: "Localized title", OriginTitle: "Original title",
 			ReleaseDate: "2026-08-01", Duration: 120, Rating: 4.5,
 			Thumbnail: "https://media.example/thumb.jpg", Cover: "https://media.example/cover.jpg",
-			Actors: []javdb.Actor{
+			Actors: []domain.Actor{
 				{ID: "actor-1", Name: "Actor", NameZHT: "演員", Gender: "female", Avatar: "https://media.example/actor.jpg"},
 				{ID: "actor-2", Name: "Actor Two", Gender: "male", Avatar: "https://media.example/actor-two.jpg"},
 			},
-			Tags:     []javdb.Tag{{ID: "tag-1", Name: "Tag", NameZHT: "標籤", CategoryID: "category-1"}},
-			Series:   &javdb.Series{ID: "series-1", Name: "Series"},
-			Maker:    &javdb.Maker{ID: "maker-1", Name: "Maker"},
-			Director: &javdb.Director{ID: "director-1", Name: "Director"},
+			Tags:     []domain.Tag{{ID: "tag-1", Name: "Tag", NameZHT: "標籤", CategoryID: "category-1"}},
+			Series:   &domain.Series{ID: "series-1", Name: "Series"},
+			Maker:    &domain.Maker{ID: "maker-1", Name: "Maker"},
+			Director: &domain.Director{ID: "director-1", Name: "Director"},
 		},
-		Zone: javdb.ZoneCensored,
+		Zone: domain.ZoneCensored,
 	}
 }
 

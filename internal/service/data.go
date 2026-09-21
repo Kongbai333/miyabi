@@ -8,12 +8,13 @@ import (
 	"path/filepath"
 
 	"entgo.io/ent/dialect/sql"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	mediaimage "github.com/ppxb/miyabi/internal/image"
 )
 
-var ErrCacheBusy = errors.New("封面正在处理或缓存正在清理，请稍后重试")
+var ErrCacheBusy = domain.E(domain.KindBusy, "封面正在处理或缓存正在清理，请稍后重试", nil)
 
 type DataInfo struct {
 	DataDirectory     string                `json:"data_directory"`

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
@@ -114,7 +115,7 @@ func (service *PlayService) Start(ctx context.Context, fileID string) (Playback,
 		return Playback{}, fmt.Errorf("read 115 video: %w", err)
 	}
 	if info.IsDirectory || !isVideo(info.Name) || !withinSource(info, source) {
-		return Playback{}, fmt.Errorf("视频已不在当前媒体目录中，请重新扫描: %w", fs.ErrNotExist)
+		return Playback{}, domain.E(domain.KindNotFound, "视频已不在当前媒体目录中，请重新扫描", fs.ErrNotExist)
 	}
 	if info.PickCode == "" {
 		return Playback{}, fmt.Errorf("115 returned no pick code for video")
@@ -207,7 +208,7 @@ func (service *PlayService) resource(id string, index int) (*playSession, playRe
 	session, exists := service.sessions[id]
 	if !exists || index < 0 || index >= len(session.resources) {
 		service.mu.Unlock()
-		return nil, playResource{}, fmt.Errorf("播放会话已结束，请重新播放: %w", fs.ErrNotExist)
+		return nil, playResource{}, domain.E(domain.KindNotFound, "播放会话已结束，请重新播放", fs.ErrNotExist)
 	}
 	resource := session.resources[index]
 	service.mu.Unlock()
@@ -216,7 +217,7 @@ func (service *PlayService) resource(id string, index int) (*playSession, playRe
 	valid := !state.closed && state.matchesSource(session.source, session.version) && state.tokens.AccessToken != ""
 	if !valid {
 		service.Release(id)
-		return nil, playResource{}, fmt.Errorf("登录账号或媒体目录已变更，请重新播放: %w", fs.ErrNotExist)
+		return nil, playResource{}, domain.E(domain.KindNotFound, "登录账号或媒体目录已变更，请重新播放", fs.ErrNotExist)
 	}
 	return session, resource, nil
 }

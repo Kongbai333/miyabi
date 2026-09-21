@@ -7,10 +7,12 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 // Browse returns one JavDB movie page using the App API tag filter mask.
-func (c *Client) Browse(ctx context.Context, options BrowseOptions) ([]Movie, error) {
+func (c *Client) Browse(ctx context.Context, options domain.BrowseOptions) ([]domain.Movie, error) {
 	params, err := buildBrowseParams(options)
 	if err != nil {
 		return nil, err
@@ -23,7 +25,7 @@ func (c *Client) Browse(ctx context.Context, options BrowseOptions) ([]Movie, er
 	return moviesFromWire(data.Movies)
 }
 
-func buildBrowseParams(options BrowseOptions) (url.Values, error) {
+func buildBrowseParams(options domain.BrowseOptions) (url.Values, error) {
 	if options.Page <= 0 || options.Limit <= 0 {
 		return nil, errors.New("JavDB browse page and limit must be positive")
 	}
@@ -36,8 +38,8 @@ func buildBrowseParams(options BrowseOptions) (url.Values, error) {
 		if options.Zone != "" || len(options.TagIDs) != 0 || options.Year != "" || options.Month != "" {
 			return nil, errors.New("JavDB entity filters cannot include zone, tags, year, or month")
 		}
-		letter, ok := map[EntityType]string{
-			EntityActor: "a", EntitySeries: "s", EntityMaker: "m", EntityDirector: "d",
+		letter, ok := map[domain.EntityType]string{
+			domain.EntityActor: "a", domain.EntitySeries: "s", domain.EntityMaker: "m", domain.EntityDirector: "d",
 		}[options.EntityType]
 		if !ok || options.EntityID == "" {
 			return nil, errors.New("JavDB entity type and ID are required")

@@ -1,14 +1,15 @@
 package pan
 
 import (
-	"errors"
 	"fmt"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 var (
-	ErrUnauthorized  = errors.New("pan authorization required")
-	ErrNotFound      = errors.New("115 file not found")
-	ErrOfflineExists = errors.New("115 offline task already exists")
+	ErrUnauthorized  = domain.E(domain.KindUnauthorized, "pan authorization required", nil)
+	ErrNotFound      = domain.E(domain.KindNotFound, "115 file not found", nil)
+	ErrOfflineExists = domain.E(domain.KindConflict, "115 offline task already exists", nil)
 )
 
 type apiError struct {
@@ -22,6 +23,19 @@ func (err *apiError) Error() string {
 
 func (err *apiError) PublicMessage() string {
 	return err.Message
+}
+
+func (err *apiError) DomainKind() domain.Kind {
+	switch {
+	case err.Is(ErrUnauthorized):
+		return domain.KindUnauthorized
+	case err.Is(ErrNotFound):
+		return domain.KindNotFound
+	case err.Is(ErrOfflineExists):
+		return domain.KindConflict
+	default:
+		return domain.KindUpstream
+	}
 }
 
 func (err *apiError) Is(target error) bool {

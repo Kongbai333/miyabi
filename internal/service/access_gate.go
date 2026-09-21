@@ -3,10 +3,11 @@ package service
 import (
 	"crypto/sha256"
 	"crypto/subtle"
-	"errors"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
-var ErrAccessPassword = errors.New("访问密码错误")
+var ErrAccessPassword = domain.E(domain.KindUnauthorized, "访问密码错误", nil)
 
 // AccessGateService checks the optional Web entry password, as in jm-boom.
 // It does not authenticate subsequent API requests or create server sessions.

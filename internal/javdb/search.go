@@ -6,18 +6,20 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
-var zoneCodes = map[Zone]int{
-	ZoneCensored:   0,
-	ZoneUncensored: 1,
-	ZoneWestern:    2,
-	ZoneFC2:        3,
-	ZoneAnime:      4,
+var zoneCodes = map[domain.Zone]int{
+	domain.ZoneCensored:   0,
+	domain.ZoneUncensored: 1,
+	domain.ZoneWestern:    2,
+	domain.ZoneFC2:        3,
+	domain.ZoneAnime:      4,
 }
 
 // Search searches JavDB's movie catalogue.
-func (c *Client) Search(ctx context.Context, keyword string, options SearchOptions) ([]Movie, error) {
+func (c *Client) Search(ctx context.Context, keyword string, options domain.SearchOptions) ([]domain.Movie, error) {
 	params, err := buildSearchParams(keyword, options)
 	if err != nil {
 		return nil, err
@@ -30,7 +32,7 @@ func (c *Client) Search(ctx context.Context, keyword string, options SearchOptio
 	return moviesFromWire(data.Movies)
 }
 
-func buildSearchParams(keyword string, options SearchOptions) (url.Values, error) {
+func buildSearchParams(keyword string, options domain.SearchOptions) (url.Values, error) {
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
 		return nil, errors.New("JavDB search keyword is required")
@@ -56,9 +58,9 @@ func buildSearchParams(keyword string, options SearchOptions) (url.Values, error
 
 	zone := options.Zone
 	if zone == "" {
-		zone = ZoneAll
+		zone = domain.ZoneAll
 	}
-	if zone != ZoneAll {
+	if zone != domain.ZoneAll {
 		code, ok := zoneCodes[zone]
 		if !ok {
 			return nil, errors.New("JavDB zone must be censored, uncensored, western, fc2, anime, or all")

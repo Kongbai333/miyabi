@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent/task"
-	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
@@ -24,16 +24,16 @@ func offlineAddFixture(t *testing.T) (*OfflineService, *panStub) {
 	t.Helper()
 	library, client := panConcurrencyFixture(t)
 	discover := &DiscoverService{
-		database: library.database, details: newResponseCache[javdb.MovieDetail](2, time.Hour),
-		magnets: newResponseCache[[]javdb.Magnet](2, time.Hour),
+		database: library.database, details: newResponseCache[domain.MovieDetail](2, time.Hour),
+		magnets: newResponseCache[[]domain.Magnet](2, time.Hour),
 	}
-	if _, err := discover.details.get(t.Context(), "fixture-movie", func(context.Context) (javdb.MovieDetail, error) {
-		return javdb.MovieDetail{Movie: javdb.Movie{ID: "fixture-movie", Code: "ABP-001"}}, nil
+	if _, err := discover.details.get(t.Context(), "fixture-movie", func(context.Context) (domain.MovieDetail, error) {
+		return domain.MovieDetail{Movie: domain.Movie{ID: "fixture-movie", Code: "ABP-001"}}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := discover.magnets.get(t.Context(), "fixture-movie", func(context.Context) ([]javdb.Magnet, error) {
-		return []javdb.Magnet{{Hash: offlineHashA}, {Hash: offlineHashB}}, nil
+	if _, err := discover.magnets.get(t.Context(), "fixture-movie", func(context.Context) ([]domain.Magnet, error) {
+		return []domain.Magnet{{Hash: offlineHashA}, {Hash: offlineHashB}}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"math"
@@ -12,14 +11,15 @@ import (
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent/predicate"
 	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 )
 
 const WatchHistoryPageSize = 20
 
-var ErrWatchHistorySourceChanged = errors.New("媒体目录已切换，请刷新观看历史后重试")
-var ErrInvalidWatchProgress = errors.New("观看进度无效")
+var ErrWatchHistorySourceChanged = domain.E(domain.KindConflict, "媒体目录已切换，请刷新观看历史后重试", nil)
+var ErrInvalidWatchProgress = domain.E(domain.KindInvalid, "观看进度无效", nil)
 
 type WatchHistoryScope struct {
 	AccountID   string `json:"account_id" form:"account_id" binding:"required,max=128"`

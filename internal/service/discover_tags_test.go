@@ -6,26 +6,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppxb/miyabi/internal/javdb"
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 func TestMovieTagsResolveGlobalIDsFromCachedTaxonomies(t *testing.T) {
-	service := &DiscoverService{tags: newResponseCache[[]javdb.TagCategory](5, time.Hour)}
-	fixtures := map[javdb.Zone][]javdb.TagCategory{
-		javdb.ZoneAnime:      {{ID: "anime-category", Tags: []javdb.TagOption{{ID: "anime-tag", Name: "动漫标签"}}}},
-		javdb.ZoneCensored:   {{ID: "shared-category", Tags: []javdb.TagOption{{ID: "shared-tag", Name: "共享标签"}}}},
-		javdb.ZoneUncensored: {{ID: "other-category", Tags: []javdb.TagOption{{ID: "other-tag", Name: "其他标签"}}}},
-		javdb.ZoneWestern:    {},
-		javdb.ZoneFC2:        {},
+	service := &DiscoverService{tags: newResponseCache[[]domain.TagCategory](5, time.Hour)}
+	fixtures := map[domain.Zone][]domain.TagCategory{
+		domain.ZoneAnime:      {{ID: "anime-category", Tags: []domain.TagOption{{ID: "anime-tag", Name: "动漫标签"}}}},
+		domain.ZoneCensored:   {{ID: "shared-category", Tags: []domain.TagOption{{ID: "shared-tag", Name: "共享标签"}}}},
+		domain.ZoneUncensored: {{ID: "other-category", Tags: []domain.TagOption{{ID: "other-tag", Name: "其他标签"}}}},
+		domain.ZoneWestern:    {},
+		domain.ZoneFC2:        {},
 	}
 	for zone, categories := range fixtures {
-		if _, err := service.tags.get(t.Context(), string(zone), func(context.Context) ([]javdb.TagCategory, error) {
+		if _, err := service.tags.get(t.Context(), string(zone), func(context.Context) ([]domain.TagCategory, error) {
 			return categories, nil
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	detail := javdb.MovieDetail{Zone: javdb.ZoneAnime, Movie: javdb.Movie{Tags: []javdb.Tag{
+	detail := domain.MovieDetail{Zone: domain.ZoneAnime, Movie: domain.Movie{Tags: []domain.Tag{
 		{ID: "anime-tag"},
 		{ID: "shared-tag", Name: "上游名称"},
 		{ID: "other-tag"},
@@ -34,7 +34,7 @@ func TestMovieTagsResolveGlobalIDsFromCachedTaxonomies(t *testing.T) {
 	if err := service.completeMovieTags(t.Context(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	want := []javdb.Tag{
+	want := []domain.Tag{
 		{ID: "anime-tag", Name: "动漫标签", CategoryID: "anime-category"},
 		{ID: "shared-tag", Name: "上游名称", CategoryID: "shared-category"},
 		{ID: "other-tag", Name: "其他标签", CategoryID: "other-category"},
@@ -45,11 +45,11 @@ func TestMovieTagsResolveGlobalIDsFromCachedTaxonomies(t *testing.T) {
 			t.Fatalf("tag %d = %#v, want %#v", index, tag, want[index])
 		}
 	}
-	detail.Tags = []javdb.Tag{{ID: "missing-tag"}}
+	detail.Tags = []domain.Tag{{ID: "missing-tag"}}
 	if err := service.completeMovieTags(t.Context(), &detail); err != nil || len(detail.Tags) != 0 {
 		t.Fatalf("unnamed retired tag blocked the movie: %#v, %v", detail.Tags, err)
 	}
-	detail.Tags = []javdb.Tag{{ID: "named-tag", Name: "上游标签"}}
+	detail.Tags = []domain.Tag{{ID: "named-tag", Name: "上游标签"}}
 	if err := service.completeMovieTags(t.Context(), &detail); err != nil || len(detail.Tags) != 1 || detail.Tags[0].Name != "上游标签" {
 		t.Fatalf("available tag name was discarded: %#v, %v", detail.Tags, err)
 	}
@@ -57,8 +57,8 @@ func TestMovieTagsResolveGlobalIDsFromCachedTaxonomies(t *testing.T) {
 
 func TestCompleteMovieTagsSkipsLookupsForCompleteMetadata(t *testing.T) {
 	service := &DiscoverService{}
-	for _, tags := range [][]javdb.Tag{nil, {{ID: "known", Name: "已知标签", CategoryID: "known-category"}}} {
-		if err := service.completeMovieTags(t.Context(), &javdb.MovieDetail{Movie: javdb.Movie{Tags: tags}}); err != nil {
+	for _, tags := range [][]domain.Tag{nil, {{ID: "known", Name: "已知标签", CategoryID: "known-category"}}} {
+		if err := service.completeMovieTags(t.Context(), &domain.MovieDetail{Movie: domain.Movie{Tags: tags}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -67,9 +67,9 @@ func TestCompleteMovieTagsSkipsLookupsForCompleteMetadata(t *testing.T) {
 func TestCompleteMovieTagsPreservesNamesWithoutLookingUpUnknownZone(t *testing.T) {
 	// No client or tag cache: an unknown zone must not issue taxonomy requests.
 	service := &DiscoverService{}
-	detail := javdb.MovieDetail{Zone: javdb.ZoneUnknown, Movie: javdb.Movie{
+	detail := domain.MovieDetail{Zone: domain.ZoneUnknown, Movie: domain.Movie{
 		ID: "movie", Code: "ABP-001", Title: "Fixture title",
-		Tags: []javdb.Tag{
+		Tags: []domain.Tag{
 			{ID: "named", Name: "上游标签", NameZHT: "上游標籤"},
 			{ID: "unnamed", CategoryID: "category"},
 			{ID: "complete", Name: "完整标签", CategoryID: "category"},
@@ -78,14 +78,14 @@ func TestCompleteMovieTagsPreservesNamesWithoutLookingUpUnknownZone(t *testing.T
 	if err := service.completeMovieTags(t.Context(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	want := []javdb.Tag{
+	want := []domain.Tag{
 		{ID: "named", Name: "上游标签", NameZHT: "上游標籤"},
 		{ID: "complete", Name: "完整标签", CategoryID: "category"},
 	}
-	if !slices.Equal(detail.Tags, want) || detail.Zone != javdb.ZoneUnknown || detail.Title != "Fixture title" {
+	if !slices.Equal(detail.Tags, want) || detail.Zone != domain.ZoneUnknown || detail.Title != "Fixture title" {
 		t.Fatalf("unknown taxonomy damaged available metadata: %#v", detail)
 	}
-	detail.Tags = []javdb.Tag{{ID: "unnamed"}}
+	detail.Tags = []domain.Tag{{ID: "unnamed"}}
 	if err := service.completeMovieTags(t.Context(), &detail); err != nil || detail.Tags == nil || len(detail.Tags) != 0 {
 		t.Fatalf("unknown taxonomy did not leave an empty usable tag list: %#v, %v", detail.Tags, err)
 	}

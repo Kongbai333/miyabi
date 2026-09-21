@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 const maxPlaylistSize = 2 << 20
@@ -55,9 +57,9 @@ func (service *PlayService) Stream(ctx context.Context, id string, index int, me
 	default:
 		response.Body.Close()
 		if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusUnauthorized {
-			return nil, fmt.Errorf("播放地址已失效，请重新加载播放")
+			return nil, domain.E(domain.KindConflict, "播放地址已失效，请重新加载播放", nil)
 		}
-		return nil, fmt.Errorf("115 视频流返回 HTTP %d", response.StatusCode)
+		return nil, domain.E(domain.KindUpstream, "115 视频流异常，请稍后重试", fmt.Errorf("upstream returned HTTP %d", response.StatusCode))
 	}
 	if method == http.MethodHead || response.StatusCode == http.StatusPartialContent {
 		return response, nil

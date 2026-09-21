@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ppxb/miyabi/internal/database"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	"github.com/ppxb/miyabi/internal/javdb"
@@ -134,7 +135,7 @@ func TestProjectMoviesAddsLibraryTaskAndReleaseState(t *testing.T) {
 	today := time.Now().In(time.Local)
 	tomorrow := today.AddDate(0, 0, 1).Format("2006-01-02")
 	service := &DiscoverService{database: store.Client}
-	movies, err := service.projectMovies(t.Context(), []javdb.Movie{
+	movies, err := service.projectMovies(t.Context(), []domain.Movie{
 		{ID: "one", Code: "ABP-001", ReleaseDate: today.Format("2006-01-02")},
 		{ID: "two", Code: "ABP-002", ReleaseDate: tomorrow},
 		{ID: "three", Code: "ABP-003"},
@@ -189,9 +190,9 @@ func TestProjectMoviesOmitsInvalidDatesWithoutMutatingCatalogue(t *testing.T) {
 		{" " + today + " ", today, ReleaseReleased},
 		{future, future, ReleaseUpcoming},
 	}
-	source := make([]javdb.Movie, len(cases))
+	source := make([]domain.Movie, len(cases))
 	for index, test := range cases {
-		source[index] = javdb.Movie{
+		source[index] = domain.Movie{
 			ID: fmt.Sprintf("movie-%d", index), Code: fmt.Sprintf("ABP-%03d", index),
 			Title: "Fixture title", ReleaseDate: test.input,
 		}
@@ -236,7 +237,7 @@ func TestProjectionUsesSourceIDBeforeCatalogueSpelling(t *testing.T) {
 		"account_id": payload.Source.AccountID, "directory_id": payload.Source.Directory.ID,
 	})).SaveX(ctx)
 	service := &DiscoverService{database: db}
-	source := []javdb.Movie{
+	source := []domain.Movie{
 		{ID: "known-id", Code: "作品/新版 #001"},
 		{ID: "pending-id", Code: "knb_m014"},
 		{ID: "conflicting-id", Code: "GLOD-0436"},
@@ -274,9 +275,9 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 	}
 	project := func() MovieState {
 		t.Helper()
-		source, err := cachedJavDB(t.Context(), service, service.lists, "fixture", func(context.Context) ([]javdb.Movie, error) {
+		source, err := cachedJavDB(t.Context(), service, service.lists, "fixture", func(context.Context) ([]domain.Movie, error) {
 			loads++
-			return []javdb.Movie{{ID: "fixture", Code: "ABP-001"}}, nil
+			return []domain.Movie{{ID: "fixture", Code: "ABP-001"}}, nil
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -335,7 +336,7 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 
 func TestProjectMagnetsBuildsStandardURIFromHash(t *testing.T) {
 	const hash = "0000000000000000000000000000000000000001"
-	result := projectMagnets([]javdb.Magnet{{Hash: hash, Name: "Fixture", Size: 1024}})
+	result := projectMagnets([]domain.Magnet{{Hash: hash, Name: "Fixture", Size: 1024}})
 	if len(result) != 1 || result[0].URI != "magnet:?xt=urn:btih:"+hash || result[0].Name != "Fixture" {
 		t.Fatalf("result = %#v", result)
 	}

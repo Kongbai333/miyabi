@@ -9,13 +9,14 @@ import (
 	"strings"
 
 	"github.com/ppxb/miyabi/internal/codeid"
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 // MovieDetail fetches a movie and its graph metadata.
-func (c *Client) MovieDetail(ctx context.Context, movieID string) (MovieDetail, error) {
+func (c *Client) MovieDetail(ctx context.Context, movieID string) (domain.MovieDetail, error) {
 	movieID = strings.TrimSpace(movieID)
 	if movieID == "" {
-		return MovieDetail{}, errors.New("JavDB movie ID is required")
+		return domain.MovieDetail{}, errors.New("JavDB movie ID is required")
 	}
 
 	var data wireMovieData
@@ -26,38 +27,38 @@ func (c *Client) MovieDetail(ctx context.Context, movieID string) (MovieDetail, 
 		defaultLanguage,
 		&data,
 	); err != nil {
-		return MovieDetail{}, err
+		return domain.MovieDetail{}, err
 	}
 	movie, err := movieFromWire(data.Movie.wireMovie)
 	if err != nil {
-		return MovieDetail{}, err
+		return domain.MovieDetail{}, err
 	}
-	zone := ZoneUnknown
+	zone := domain.ZoneUnknown
 	if data.Movie.Type != nil {
 		zone = zoneFromCode(*data.Movie.Type)
-		if zone == ZoneUnknown {
+		if zone == domain.ZoneUnknown {
 			slog.WarnContext(ctx, "unknown JavDB movie type; using unknown zone",
 				"movie_id", movie.ID, "field", "type", "value", *data.Movie.Type)
 		}
 	}
-	return MovieDetail{
+	return domain.MovieDetail{
 		Movie: movie, Zone: zone,
 		ActorMovies:   movieReferencesFromWire(movie.ID, "actor_movies", data.Movie.ActorMovies),
 		RelatedMovies: movieReferencesFromWire(movie.ID, "relative_movies", data.Movie.RelatedMovies),
 	}, nil
 }
 
-func zoneFromCode(code int) Zone {
+func zoneFromCode(code int) domain.Zone {
 	for zone, value := range zoneCodes {
 		if value == code {
 			return zone
 		}
 	}
-	return ZoneUnknown
+	return domain.ZoneUnknown
 }
 
-func movieReferencesFromWire(movieID, field string, source []wireMovieReference) []MovieReference {
-	result := make([]MovieReference, 0, len(source))
+func movieReferencesFromWire(movieID, field string, source []wireMovieReference) []domain.MovieReference {
+	result := make([]domain.MovieReference, 0, len(source))
 	for index, item := range source {
 		id := strings.TrimSpace(item.ID)
 		code := strings.TrimSpace(item.Number)
@@ -74,7 +75,7 @@ func movieReferencesFromWire(movieID, field string, source []wireMovieReference)
 				"reference_id", id, "reason", reason)
 			continue
 		}
-		result = append(result, MovieReference{ID: id, Code: code, Thumbnail: item.ThumbURL})
+		result = append(result, domain.MovieReference{ID: id, Code: code, Thumbnail: item.ThumbURL})
 	}
 	return result
 }
@@ -87,8 +88,8 @@ func (c *Client) ResolveMovieID(ctx context.Context, number string) (string, err
 		return "", errors.New("catalogue number is required")
 	}
 
-	movies, err := c.Search(ctx, wanted, SearchOptions{
-		Zone:  ZoneAll,
+	movies, err := c.Search(ctx, wanted, domain.SearchOptions{
+		Zone:  domain.ZoneAll,
 		Page:  1,
 		Limit: 100,
 	})
@@ -112,8 +113,8 @@ func (c *Client) ResolveMovieID(ctx context.Context, number string) (string, err
 	return matched, nil
 }
 
-func moviesFromWire(source []wireMovie) ([]Movie, error) {
-	movies := make([]Movie, len(source))
+func moviesFromWire(source []wireMovie) ([]domain.Movie, error) {
+	movies := make([]domain.Movie, len(source))
 	for index, item := range source {
 		movie, err := movieFromWire(item)
 		if err != nil {
@@ -124,16 +125,16 @@ func moviesFromWire(source []wireMovie) ([]Movie, error) {
 	return movies, nil
 }
 
-func movieFromWire(source wireMovie) (Movie, error) {
+func movieFromWire(source wireMovie) (domain.Movie, error) {
 	if strings.TrimSpace(source.ID) == "" {
-		return Movie{}, errors.New("missing id")
+		return domain.Movie{}, errors.New("missing id")
 	}
 	code := strings.TrimSpace(source.Number)
 	if code == "" {
-		return Movie{}, errors.New("missing number")
+		return domain.Movie{}, errors.New("missing number")
 	}
 
-	movie := Movie{
+	movie := domain.Movie{
 		ID:            source.ID,
 		Code:          code,
 		Title:         source.Title,
@@ -147,15 +148,15 @@ func movieFromWire(source wireMovie) (Movie, error) {
 		MagnetsCount:  source.MagnetsCount,
 		HasSubtitle:   source.HasCNSub,
 		HasPreview:    source.HasPreviewImages || source.HasPreviewVideo,
-		PreviewImages: make([]PreviewImage, 0, len(source.PreviewImages)),
-		Actors:        make([]Actor, len(source.Actors)),
-		Tags:          make([]Tag, len(source.Tags)),
+		PreviewImages: make([]domain.PreviewImage, 0, len(source.PreviewImages)),
+		Actors:        make([]domain.Actor, len(source.Actors)),
+		Tags:          make([]domain.Tag, len(source.Tags)),
 	}
 	for _, image := range source.PreviewImages {
 		if image.ThumbURL == "" && image.LargeURL == "" {
 			continue
 		}
-		movie.PreviewImages = append(movie.PreviewImages, PreviewImage{
+		movie.PreviewImages = append(movie.PreviewImages, domain.PreviewImage{
 			Thumbnail: image.ThumbURL,
 			Original:  image.LargeURL,
 		})
@@ -174,7 +175,7 @@ func movieFromWire(source wireMovie) (Movie, error) {
 					"actor_id", actor.ID, "value", *actor.Gender)
 			}
 		}
-		movie.Actors[index] = Actor{
+		movie.Actors[index] = domain.Actor{
 			ID:      actor.ID,
 			Name:    actor.Name,
 			NameZHT: actor.NameZHT,
@@ -183,7 +184,7 @@ func movieFromWire(source wireMovie) (Movie, error) {
 		}
 	}
 	for index, tag := range source.Tags {
-		movie.Tags[index] = Tag{
+		movie.Tags[index] = domain.Tag{
 			ID:         tag.ID,
 			Name:       tag.Name,
 			NameZHT:    tag.NameZHT,
@@ -191,13 +192,13 @@ func movieFromWire(source wireMovie) (Movie, error) {
 		}
 	}
 	if source.SeriesID != "" || source.SeriesName != "" {
-		movie.Series = &Series{ID: source.SeriesID, Name: source.SeriesName}
+		movie.Series = &domain.Series{ID: source.SeriesID, Name: source.SeriesName}
 	}
 	if source.MakerID != "" || source.MakerName != "" {
-		movie.Maker = &Maker{ID: source.MakerID, Name: source.MakerName}
+		movie.Maker = &domain.Maker{ID: source.MakerID, Name: source.MakerName}
 	}
 	if source.DirectorID != "" || source.DirectorName != "" {
-		movie.Director = &Director{ID: source.DirectorID, Name: source.DirectorName}
+		movie.Director = &domain.Director{ID: source.DirectorID, Name: source.DirectorName}
 	}
 	return movie, nil
 }

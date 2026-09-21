@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 const mediaUserAgent = "Miyabi/1.0"
@@ -71,7 +73,7 @@ func (client *Client) PlayURL(ctx context.Context, accessToken, pickCode string)
 		return nil, err
 	}
 	if len(result.Data.Sources) == 0 {
-		return nil, fmt.Errorf("115 暂未提供该文件的转码播放地址，请稍后重试")
+		return nil, domain.E(domain.KindUpstream, "115 暂未提供该文件的转码播放地址，请稍后重试", errors.New("transcoded playback sources unavailable"))
 	}
 	for _, source := range result.Data.Sources {
 		if source.URL == "" || source.Height <= 0 {

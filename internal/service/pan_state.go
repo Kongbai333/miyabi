@@ -2,13 +2,14 @@ package service
 
 import (
 	"context"
-	"errors"
 	"sync"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
-var errPanSourceChanged = errors.New("媒体目录或登录账号已变更，请重新扫描")
+var ErrSourceChanged = domain.E(domain.KindConflict, "媒体目录或登录账号已变更，请重新扫描", nil)
+var errPanSourceChanged = ErrSourceChanged
 
 // contextLock has a usable zero value and lets waiting callers leave promptly.
 type contextLock struct {

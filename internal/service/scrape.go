@@ -10,6 +10,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
 	"github.com/ppxb/miyabi/internal/codeid"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/file"
@@ -23,10 +24,11 @@ import (
 
 type metadataPayload struct {
 	Source     LibrarySource `json:"source"`
-	ScanTaskID int           `json:"scan_task_id"`
 	MovieID    int           `json:"movie_id"`
 	Code       string        `json:"code"`
 	JavDBID    string        `json:"javdb_id,omitempty"`
+	Directory  string        `json:"directory,omitempty"`
+	ScanTaskID int           `json:"scan_task_id,omitempty"`
 }
 
 type artworkOrigin struct {
@@ -70,7 +72,7 @@ func (service *ScrapeService) begin(ctx context.Context, input metadataPayload) 
 	}
 	source := state.source()
 	if source.AccountID != input.Source.AccountID || source.Directory.ID != input.Source.Directory.ID {
-		return 0, fmt.Errorf("媒体目录或登录账号已变更，请重新扫描")
+		return 0, ErrSourceChanged
 	}
 	return state.authorizationVersion, nil
 }
@@ -139,7 +141,7 @@ func (service *ScrapeService) Scrape(ctx context.Context, job TaskJob) error {
 				return err
 			}
 			if !knownID && codeid.Normalize(detail.Code) != input.Code {
-				return fmt.Errorf("JavDB 返回的番号 %s 与媒体文件 %s 不一致", detail.Code, input.Code)
+				return domain.E(domain.KindConflict, fmt.Sprintf("JavDB 返回的番号 %s 与媒体文件 %s 不一致", detail.Code, input.Code), nil)
 			}
 			cover.Document = detailNFO(detail)
 			cover.CoverURL = detail.Cover
@@ -177,7 +179,7 @@ func (service *ScrapeService) directories(ctx context.Context, input metadataPay
 		return nil, fmt.Errorf("load movie file directories: %w", err)
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("影片已没有媒体文件，请重新扫描")
+		return nil, domain.E(domain.KindNotFound, "影片已没有媒体文件，请重新扫描", nil)
 	}
 	var result []movieDirectory
 	byID := make(map[string]int)
@@ -207,7 +209,7 @@ func (service *ScrapeService) directories(ctx context.Context, input metadataPay
 			}
 		}
 		if present == 0 {
-			return nil, fmt.Errorf("视频文件已删除或移动，请重新扫描")
+			return nil, domain.E(domain.KindNotFound, "视频文件已删除或移动，请重新扫描", nil)
 		}
 	}
 	return result, nil
@@ -272,7 +274,7 @@ func (service *ScrapeService) directoryNFO(ctx context.Context, input metadataPa
 		code, _ = codeid.Parse(entry.Name)
 	}
 	if code != input.Code {
-		return nfo.Movie{}, nil, false, fmt.Errorf("NFO %s 的番号与视频不一致", entry.Name)
+		return nfo.Movie{}, nil, false, domain.E(domain.KindConflict, fmt.Sprintf("NFO %s 的番号与视频不一致", entry.Name), nil)
 	}
 	doc.Code = code
 	posterName, fanartName := doc.Poster(), doc.Fanart
@@ -286,7 +288,7 @@ func (service *ScrapeService) directoryNFO(ctx context.Context, input metadataPa
 	poster, posterFound := sidecarByName(directory.Files, posterName)
 	fanart, fanartFound := sidecarByName(directory.Files, fanartName)
 	if !posterFound || !fanartFound {
-		return nfo.Movie{}, nil, false, fmt.Errorf("NFO %s 对应的海报或封面不存在", entry.Name)
+		return nfo.Movie{}, nil, false, domain.E(domain.KindNotFound, fmt.Sprintf("NFO %s 对应的海报或封面不存在", entry.Name), nil)
 	}
 	return doc, &artworkOrigin{NFO: entry, Poster: poster, Fanart: fanart}, true, nil
 }

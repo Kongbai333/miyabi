@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"golang.org/x/time/rate"
 )
 
@@ -60,8 +61,8 @@ func TestSearchDecodesMoviesAndBuildsParams(t *testing.T) {
 	}}
 	client := clientWithTransport(transport)
 
-	movies, err := client.Search(t.Context(), " ABP-123 ", SearchOptions{
-		Zone:     ZoneCensored,
+	movies, err := client.Search(t.Context(), " ABP-123 ", domain.SearchOptions{
+		Zone:     domain.ZoneCensored,
 		Sort:     "release",
 		FilterBy: "magnets",
 		Page:     2,
@@ -97,8 +98,8 @@ func TestBrowseUsesDocumentedFilterMask(t *testing.T) {
 	}}
 	client := clientWithTransport(transport)
 
-	movies, err := client.Browse(t.Context(), BrowseOptions{
-		Zone:   ZoneCensored,
+	movies, err := client.Browse(t.Context(), domain.BrowseOptions{
+		Zone:   domain.ZoneCensored,
 		Main:   []string{"m", "c"},
 		TagIDs: []string{"tag-1", "tag-2"},
 		Year:   "2026",
@@ -138,7 +139,7 @@ func TestBrowseWithoutZoneKeepsTheFilterMask(t *testing.T) {
 		{name: "local tag search", main: []string{"m"}, tagIDs: []string{"tag-1"}, sort: "release", mask: ":t:m:tag-1:::"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			params, err := buildBrowseParams(BrowseOptions{
+			params, err := buildBrowseParams(domain.BrowseOptions{
 				Main: test.main, TagIDs: test.tagIDs, Sort: test.sort, Order: "desc", Page: 1, Limit: 20,
 			})
 			if err != nil {
@@ -156,8 +157,8 @@ func TestBrowsePreservesWesternSceneNumbers(t *testing.T) {
 		"/api/v1/movies/tags|zh-TW": fixtureFile(t, "browse_western.json"),
 	}}
 	client := clientWithTransport(transport)
-	movies, err := client.Browse(t.Context(), BrowseOptions{
-		Zone: ZoneWestern, Sort: "release", Order: "desc", Page: 1, Limit: 20,
+	movies, err := client.Browse(t.Context(), domain.BrowseOptions{
+		Zone: domain.ZoneWestern, Sort: "release", Order: "desc", Page: 1, Limit: 20,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -182,8 +183,8 @@ func TestBrowsePreservesCatalogueNumberSegments(t *testing.T) {
 		"/api/v1/movies/tags|zh-TW": fixtureFile(t, "browse_catalogue_numbers.json"),
 	}}
 	client := clientWithTransport(transport)
-	movies, err := client.Browse(t.Context(), BrowseOptions{
-		Zone: ZoneUncensored, Sort: "release", Order: "desc", Page: 1, Limit: 20,
+	movies, err := client.Browse(t.Context(), domain.BrowseOptions{
+		Zone: domain.ZoneUncensored, Sort: "release", Order: "desc", Page: 1, Limit: 20,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +230,7 @@ func TestMovieDetailMapsGraphWithoutPlot(t *testing.T) {
 	if movie.Series == nil || movie.Maker == nil || movie.Director == nil {
 		t.Fatalf("graph = %#v %#v %#v", movie.Series, movie.Maker, movie.Director)
 	}
-	if movie.Zone != ZoneCensored || len(movie.ActorMovies) != 1 || len(movie.RelatedMovies) != 1 {
+	if movie.Zone != domain.ZoneCensored || len(movie.ActorMovies) != 1 || len(movie.RelatedMovies) != 1 {
 		t.Fatalf("zone = %s, actor movies = %#v, related movies = %#v", movie.Zone, movie.ActorMovies, movie.RelatedMovies)
 	}
 	if movie.ActorMovies[0].Code != "abp124" || movie.RelatedMovies[0].Code != "SONE-001a" || movie.RelatedMovies[0].Thumbnail != "https://media.example/related-movie.jpg" {
@@ -274,16 +275,16 @@ func TestMovieDetailPreservesNamedNumbers(t *testing.T) {
 
 func TestBrowseBuildsEntityFilters(t *testing.T) {
 	for _, test := range []struct {
-		kind EntityType
+		kind domain.EntityType
 		want string
 	}{
-		{EntityActor, ":a:entity-1"},
-		{EntitySeries, ":s:entity-1"},
-		{EntityMaker, ":m:entity-1"},
-		{EntityDirector, ":d:entity-1"},
+		{domain.EntityActor, ":a:entity-1"},
+		{domain.EntitySeries, ":s:entity-1"},
+		{domain.EntityMaker, ":m:entity-1"},
+		{domain.EntityDirector, ":d:entity-1"},
 	} {
 		t.Run(string(test.kind), func(t *testing.T) {
-			options := BrowseOptions{EntityType: test.kind, EntityID: "entity-1", Sort: "release", Order: "desc", Page: 2, Limit: 20}
+			options := domain.BrowseOptions{EntityType: test.kind, EntityID: "entity-1", Sort: "release", Order: "desc", Page: 2, Limit: 20}
 			params, err := buildBrowseParams(options)
 			if err != nil {
 				t.Fatal(err)
@@ -299,7 +300,7 @@ func TestBrowseBuildsEntityFilters(t *testing.T) {
 			if params.Get("filter_by") != test.want+":m,c::" {
 				t.Fatalf("main filter = %s", params.Get("filter_by"))
 			}
-			options.Zone = ZoneFC2
+			options.Zone = domain.ZoneFC2
 			if _, err := buildBrowseParams(options); err == nil {
 				t.Fatal("accepted an unsupported zone filter for entity movies")
 			}
@@ -381,18 +382,18 @@ func TestAnimeDetailAndCatalogueQueriesUseTheAnimeSection(t *testing.T) {
 	}}
 	client := clientWithTransport(transport)
 	detail, err := client.MovieDetail(t.Context(), "anime")
-	if err != nil || detail.Zone != ZoneAnime || detail.Code != "GLOD-0436" {
+	if err != nil || detail.Zone != domain.ZoneAnime || detail.Code != "GLOD-0436" {
 		t.Fatalf("anime detail = %#v, error = %v", detail, err)
 	}
-	params, err := buildSearchParams("GLOD-0436", SearchOptions{Zone: ZoneAnime})
+	params, err := buildSearchParams("GLOD-0436", domain.SearchOptions{Zone: domain.ZoneAnime})
 	if err != nil || params.Get("movie_type") != "4" {
 		t.Fatalf("anime search parameters = %#v, error = %v", params, err)
 	}
-	params, err = buildBrowseParams(BrowseOptions{Zone: ZoneAnime, Page: 1, Limit: 20, Sort: "release", Order: "desc"})
+	params, err = buildBrowseParams(domain.BrowseOptions{Zone: domain.ZoneAnime, Page: 1, Limit: 20, Sort: "release", Order: "desc"})
 	if err != nil || params.Get("filter_by") != "4:t:::::" {
 		t.Fatalf("anime browse parameters = %#v, error = %v", params, err)
 	}
-	if _, err := client.Tags(t.Context(), ZoneAnime); err != nil {
+	if _, err := client.Tags(t.Context(), domain.ZoneAnime); err != nil {
 		t.Fatal(err)
 	}
 	if call := transport.calls[len(transport.calls)-1]; call.params.Get("type") != "4" {
@@ -513,7 +514,7 @@ func TestTagsOnlyRequestsTraditionalChinese(t *testing.T) {
 	}}
 	client := clientWithTransport(transport)
 
-	categories, err := client.Tags(t.Context(), ZoneCensored)
+	categories, err := client.Tags(t.Context(), domain.ZoneCensored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,18 +531,18 @@ func TestTagsOnlyRequestsTraditionalChinese(t *testing.T) {
 }
 
 func TestQueryOptionsRejectUnsupportedZones(t *testing.T) {
-	for _, zone := range []Zone{"invalid", ZoneUnknown} {
-		if _, err := buildSearchParams("ABP-123", SearchOptions{Zone: zone}); err == nil {
+	for _, zone := range []domain.Zone{"invalid", domain.ZoneUnknown} {
+		if _, err := buildSearchParams("ABP-123", domain.SearchOptions{Zone: zone}); err == nil {
 			t.Fatalf("search accepted unsupported zone %q", zone)
 		}
-		if _, err := buildBrowseParams(BrowseOptions{Zone: zone, Page: 1, Limit: 20, Sort: "release", Order: "desc"}); err == nil {
+		if _, err := buildBrowseParams(domain.BrowseOptions{Zone: zone, Page: 1, Limit: 20, Sort: "release", Order: "desc"}); err == nil {
 			t.Fatalf("browse accepted unsupported zone %q", zone)
 		}
 		if _, err := (&Client{}).Tags(t.Context(), zone); err == nil {
 			t.Fatalf("tags accepted unsupported zone %q", zone)
 		}
 	}
-	if _, err := buildBrowseParams(BrowseOptions{Zone: ZoneAll, Page: 1, Limit: 20, Sort: "release", Order: "desc"}); err == nil {
+	if _, err := buildBrowseParams(domain.BrowseOptions{Zone: domain.ZoneAll, Page: 1, Limit: 20, Sort: "release", Order: "desc"}); err == nil {
 		t.Fatal("browse accepted the all zone")
 	}
 }

@@ -2,12 +2,12 @@ package service
 
 import (
 	"context"
-	"errors"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
-var errPanDirectoryIncomplete = errors.New("115 目录内容在读取期间变化或分页不完整，请重新扫描")
+var errPanDirectoryIncomplete = domain.E(domain.KindConflict, "115 目录内容在读取期间变化或分页不完整，请重新扫描", nil)
 
 // A visitor returns false when its search is complete. Validate each page
 // before visiting it so incomplete listings cannot commit a scan or authorize

@@ -9,10 +9,12 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 // Magnets returns subtitle and HD resources first, then orders by size.
-func (c *Client) Magnets(ctx context.Context, movieID string) ([]Magnet, error) {
+func (c *Client) Magnets(ctx context.Context, movieID string) ([]domain.Magnet, error) {
 	movieID = strings.TrimSpace(movieID)
 	if movieID == "" {
 		return nil, errors.New("JavDB movie ID is required")
@@ -21,7 +23,7 @@ func (c *Client) Magnets(ctx context.Context, movieID string) ([]Magnet, error) 
 	if err := c.getJSON(ctx, "/api/v1/movies/"+url.PathEscape(movieID)+"/magnets", nil, defaultLanguage, &data); err != nil {
 		return nil, err
 	}
-	magnets := make([]Magnet, len(data.Magnets))
+	magnets := make([]domain.Magnet, len(data.Magnets))
 	for index, item := range data.Magnets {
 		hash, err := hex.DecodeString(item.Hash)
 		if err != nil {
@@ -30,12 +32,12 @@ func (c *Client) Magnets(ctx context.Context, movieID string) ([]Magnet, error) 
 		if len(hash) != 20 {
 			return nil, fmt.Errorf("JavDB magnet %d has an invalid info hash length", index)
 		}
-		magnets[index] = Magnet{
+		magnets[index] = domain.Magnet{
 			Hash: hex.EncodeToString(hash), Name: item.Name, Size: item.SizeMiB * 1024 * 1024,
 			HasSubtitle: item.CNSub, HD: item.HD, FilesCount: item.FilesCount, CreatedAt: item.CreatedAt,
 		}
 	}
-	slices.SortStableFunc(magnets, func(a, b Magnet) int {
+	slices.SortStableFunc(magnets, func(a, b domain.Magnet) int {
 		if a.HasSubtitle != b.HasSubtitle {
 			if a.HasSubtitle {
 				return -1

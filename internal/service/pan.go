@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/pan"
@@ -183,7 +184,7 @@ func (service *PanService) BeginLogin(ctx context.Context) (PanLoginSession, err
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.session != session || service.closed {
-		return PanLoginSession{}, fmt.Errorf("115 登录会话已变更，请重新扫码")
+		return PanLoginSession{}, domain.E(domain.KindConflict, "115 登录会话已变更，请重新扫码", nil)
 	}
 	if err != nil {
 		service.session = nil

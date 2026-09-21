@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"github.com/ppxb/miyabi/internal/codeid"
 	"github.com/ppxb/miyabi/internal/ent"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/task"
@@ -19,8 +20,8 @@ import (
 )
 
 var (
-	ErrMediaDirectoryRequired = errors.New("请先在设置页挂载当前 115 账号的媒体目录")
-	ErrMagnetNotFound         = errors.New("磁力链不属于当前影片，请刷新后重试")
+	ErrMediaDirectoryRequired = domain.E(domain.KindInvalid, "请先在设置页挂载当前 115 账号的媒体目录", nil)
+	ErrMagnetNotFound         = domain.E(domain.KindInvalid, "磁力链不属于当前影片，请刷新后重试", nil)
 )
 
 type OfflineSubmission struct {
@@ -111,7 +112,7 @@ func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (O
 			return OfflineSubmission{}, err
 		}
 		if input.DirectoryID != directory.ID {
-			return OfflineSubmission{}, fmt.Errorf("该磁力正在下载到另一个目录，请先在 115 中处理该任务")
+			return OfflineSubmission{}, domain.E(domain.KindConflict, "该磁力正在下载到另一个目录，请先在 115 中处理该任务", nil)
 		}
 		return service.submission(ctx, existing, &source)
 	}
@@ -208,7 +209,7 @@ func (service *OfflineService) submit(ctx context.Context, state panSnapshot, so
 	}
 	if remote.Status == 0 || remote.Status == 1 {
 		if remote.DirectoryID != source.Directory.ID {
-			return pan.OfflineTask{}, fmt.Errorf("115 已有该磁力的下载任务，目标目录与当前媒体目录不一致")
+			return pan.OfflineTask{}, domain.E(domain.KindConflict, "115 已有该磁力的下载任务，目标目录与当前媒体目录不一致", nil)
 		}
 		return remote, nil
 	}
@@ -216,7 +217,7 @@ func (service *OfflineService) submit(ctx context.Context, state panSnapshot, so
 		return pan.OfflineTask{}, fmt.Errorf("115 returned unknown offline status %d", remote.Status)
 	}
 	if remote.FileID == "" {
-		return pan.OfflineTask{}, fmt.Errorf("115 的历史任务未提供资源位置，请先在 115 客户端清理该任务记录")
+		return pan.OfflineTask{}, domain.E(domain.KindConflict, "115 的历史任务未提供资源位置，请先在 115 客户端清理该任务记录", nil)
 	}
 	present, err := service.remoteHasVideo(ctx, state, source, remote.FileID)
 	if err != nil {
@@ -224,7 +225,7 @@ func (service *OfflineService) submit(ctx context.Context, state panSnapshot, so
 	}
 	if present {
 		if remote.Status == -1 {
-			return pan.OfflineTask{}, fmt.Errorf("115 任务失败但目录内仍有视频，请先在 115 客户端确认完整性")
+			return pan.OfflineTask{}, domain.E(domain.KindConflict, "115 任务失败但目录内仍有视频，请先在 115 客户端确认完整性", nil)
 		}
 		return remote, nil
 	}
@@ -261,7 +262,7 @@ func (service *OfflineService) findRemoteTask(ctx context.Context, state panSnap
 	if found != nil {
 		return *found, nil
 	}
-	return pan.OfflineTask{}, fmt.Errorf("115 提示任务已存在，但任务列表中未找到它，请稍后重试")
+	return pan.OfflineTask{}, domain.E(domain.KindBusy, "115 提示任务已存在，但任务列表中未找到它，请稍后重试", nil)
 }
 
 func (service *OfflineService) remoteHasVideo(ctx context.Context, state panSnapshot, source LibrarySource, id string) (bool, error) {
@@ -275,7 +276,7 @@ func (service *OfflineService) remoteHasVideo(ctx context.Context, state panSnap
 		return false, fmt.Errorf("check existing 115 resource: %w", err)
 	}
 	if !withinSource(info, source) {
-		return false, fmt.Errorf("该磁力的资源已在媒体目录之外，请先在 115 中移动资源")
+		return false, domain.E(domain.KindConflict, "该磁力的资源已在媒体目录之外，请先在 115 中移动资源", nil)
 	}
 	if !info.IsDirectory {
 		return isVideo(info.Name), nil
@@ -290,7 +291,7 @@ func (service *OfflineService) remoteHasVideo(ctx context.Context, state panSnap
 			})
 		}, func(page pan.FilePage) (bool, error) {
 			if !slices.ContainsFunc(page.Path, func(dir pan.Directory) bool { return dir.ID == source.Directory.ID }) {
-				return false, fmt.Errorf("下载目录已移出媒体目录")
+				return false, domain.E(domain.KindNotFound, "下载目录已移出媒体目录", nil)
 			}
 			for _, entry := range page.Files {
 				if entry.IsDirectory {

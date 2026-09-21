@@ -2,11 +2,11 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"slices"
 	"strings"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
@@ -41,7 +41,7 @@ func (service *LibraryService) sourceInfo(ctx context.Context, source LibrarySou
 		return pan.FileInfo{}, err
 	}
 	if !withinSource(info, source) {
-		return pan.FileInfo{}, fmt.Errorf("下载资源已移出媒体目录")
+		return pan.FileInfo{}, domain.E(domain.KindNotFound, "下载资源已移出媒体目录", nil)
 	}
 	return info, nil
 }

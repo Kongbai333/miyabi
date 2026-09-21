@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/netx"
@@ -35,7 +36,7 @@ const (
 )
 
 type DiscoverMovie struct {
-	javdb.Movie
+	domain.Movie
 	LibraryID     int           `json:"library_id,omitempty"`
 	State         MovieState    `json:"state"`
 	ReleaseStatus ReleaseStatus `json:"release_status"`
@@ -43,13 +44,13 @@ type DiscoverMovie struct {
 
 type DiscoverMovieDetail struct {
 	DiscoverMovie
-	Zone          javdb.Zone             `json:"zone"`
-	ActorMovies   []javdb.MovieReference `json:"actor_movies"`
-	RelatedMovies []javdb.MovieReference `json:"related_movies"`
+	Zone          domain.Zone             `json:"zone"`
+	ActorMovies   []domain.MovieReference `json:"actor_movies"`
+	RelatedMovies []domain.MovieReference `json:"related_movies"`
 }
 
 type DiscoverMagnet struct {
-	javdb.Magnet
+	domain.Magnet
 	URI string `json:"uri"`
 }
 
@@ -77,12 +78,12 @@ type persistedRoute struct {
 // substitute fixtures; production always uses *javdb.Client.
 type catalogueClient interface {
 	Close()
-	Search(context.Context, string, javdb.SearchOptions) ([]javdb.Movie, error)
-	Browse(context.Context, javdb.BrowseOptions) ([]javdb.Movie, error)
-	MovieDetail(context.Context, string) (javdb.MovieDetail, error)
-	Magnets(context.Context, string) ([]javdb.Magnet, error)
+	Search(context.Context, string, domain.SearchOptions) ([]domain.Movie, error)
+	Browse(context.Context, domain.BrowseOptions) ([]domain.Movie, error)
+	MovieDetail(context.Context, string) (domain.MovieDetail, error)
+	Magnets(context.Context, string) ([]domain.Magnet, error)
 	FetchMedia(context.Context, string) (javdb.Media, error)
-	Tags(context.Context, javdb.Zone) ([]javdb.TagCategory, error)
+	Tags(context.Context, domain.Zone) ([]domain.TagCategory, error)
 	ResolveMovieID(context.Context, string) (string, error)
 	Route() (javdb.RouteStatus, bool)
 	SelectRoute(context.Context, string) (javdb.RouteStatus, error)
@@ -93,10 +94,10 @@ type catalogueClient interface {
 type DiscoverService struct {
 	database *ent.Client
 	javdb    catalogueClient
-	lists    *responseCache[[]javdb.Movie]
-	details  *responseCache[javdb.MovieDetail]
-	tags     *responseCache[[]javdb.TagCategory]
-	magnets  *responseCache[[]javdb.Magnet]
+	lists    *responseCache[[]domain.Movie]
+	details  *responseCache[domain.MovieDetail]
+	tags     *responseCache[[]domain.TagCategory]
+	magnets  *responseCache[[]domain.Magnet]
 
 	routeMu sync.RWMutex
 	route   JavDBRouteStatus
@@ -146,10 +147,10 @@ func NewDiscoverService(
 	return &DiscoverService{
 		database: database,
 		javdb:    client,
-		lists:    newResponseCache[[]javdb.Movie](128, time.Minute),
-		details:  newResponseCache[javdb.MovieDetail](256, 5*time.Minute),
-		tags:     newResponseCache[[]javdb.TagCategory](5, 24*time.Hour),
-		magnets:  newResponseCache[[]javdb.Magnet](64, time.Minute),
+		lists:    newResponseCache[[]domain.Movie](128, time.Minute),
+		details:  newResponseCache[domain.MovieDetail](256, 5*time.Minute),
+		tags:     newResponseCache[[]domain.TagCategory](5, 24*time.Hour),
+		magnets:  newResponseCache[[]domain.Magnet](64, time.Minute),
 		route: JavDBRouteStatus{
 			Host:      route.Host,
 			LatencyMS: route.LatencyMS,
@@ -166,11 +167,11 @@ func (service *DiscoverService) Close() {
 func (service *DiscoverService) Search(
 	ctx context.Context,
 	keyword string,
-	options javdb.SearchOptions,
+	options domain.SearchOptions,
 ) ([]DiscoverMovie, error) {
 	keyword = strings.TrimSpace(keyword)
 	key := fmt.Sprintf("search:%q:%#v", keyword, options)
-	movies, err := cachedJavDB(ctx, service, service.lists, key, func(ctx context.Context) ([]javdb.Movie, error) {
+	movies, err := cachedJavDB(ctx, service, service.lists, key, func(ctx context.Context) ([]domain.Movie, error) {
 		return service.javdb.Search(ctx, keyword, options)
 	})
 	if err != nil {
@@ -181,10 +182,10 @@ func (service *DiscoverService) Search(
 
 func (service *DiscoverService) Browse(
 	ctx context.Context,
-	options javdb.BrowseOptions,
+	options domain.BrowseOptions,
 ) ([]DiscoverMovie, error) {
 	key := fmt.Sprintf("browse:%#v", options)
-	movies, err := cachedJavDB(ctx, service, service.lists, key, func(ctx context.Context) ([]javdb.Movie, error) {
+	movies, err := cachedJavDB(ctx, service, service.lists, key, func(ctx context.Context) ([]domain.Movie, error) {
 		return service.javdb.Browse(ctx, options)
 	})
 	if err != nil {
@@ -194,20 +195,20 @@ func (service *DiscoverService) Browse(
 }
 
 func (service *DiscoverService) MovieDetail(ctx context.Context, movieID string) (DiscoverMovieDetail, error) {
-	movie, err := cachedJavDB(ctx, service, service.details, movieID, func(ctx context.Context) (javdb.MovieDetail, error) {
+	movie, err := cachedJavDB(ctx, service, service.details, movieID, func(ctx context.Context) (domain.MovieDetail, error) {
 		detail, err := service.javdb.MovieDetail(ctx, movieID)
 		if err != nil {
-			return javdb.MovieDetail{}, err
+			return domain.MovieDetail{}, err
 		}
 		if err := service.completeMovieTags(ctx, &detail); err != nil {
-			return javdb.MovieDetail{}, err
+			return domain.MovieDetail{}, err
 		}
 		return detail, nil
 	})
 	if err != nil {
 		return DiscoverMovieDetail{}, fmt.Errorf("get JavDB movie detail: %w", err)
 	}
-	projected, err := service.projectMovies(ctx, []javdb.Movie{movie.Movie})
+	projected, err := service.projectMovies(ctx, []domain.Movie{movie.Movie})
 	if err != nil {
 		return DiscoverMovieDetail{}, err
 	}
@@ -218,7 +219,7 @@ func (service *DiscoverService) MovieDetail(ctx context.Context, movieID string)
 }
 
 func (service *DiscoverService) Magnets(ctx context.Context, movieID string) ([]DiscoverMagnet, error) {
-	magnets, err := cachedJavDB(ctx, service, service.magnets, movieID, func(ctx context.Context) ([]javdb.Magnet, error) {
+	magnets, err := cachedJavDB(ctx, service, service.magnets, movieID, func(ctx context.Context) ([]domain.Magnet, error) {
 		return service.javdb.Magnets(ctx, movieID)
 	})
 	if err != nil {
@@ -227,7 +228,7 @@ func (service *DiscoverService) Magnets(ctx context.Context, movieID string) ([]
 	return projectMagnets(magnets), nil
 }
 
-func projectMagnets(source []javdb.Magnet) []DiscoverMagnet {
+func projectMagnets(source []domain.Magnet) []DiscoverMagnet {
 	result := make([]DiscoverMagnet, len(source))
 	for index, item := range source {
 		result[index] = DiscoverMagnet{Magnet: item, URI: "magnet:?xt=urn:btih:" + item.Hash}
@@ -243,8 +244,8 @@ func (service *DiscoverService) Media(ctx context.Context, rawURL string) (javdb
 	return media, nil
 }
 
-func (service *DiscoverService) Tags(ctx context.Context, zone javdb.Zone) ([]javdb.TagCategory, error) {
-	categories, err := cachedJavDB(ctx, service, service.tags, string(zone), func(ctx context.Context) ([]javdb.TagCategory, error) {
+func (service *DiscoverService) Tags(ctx context.Context, zone domain.Zone) ([]domain.TagCategory, error) {
+	categories, err := cachedJavDB(ctx, service, service.tags, string(zone), func(ctx context.Context) ([]domain.TagCategory, error) {
 		return service.javdb.Tags(ctx, zone)
 	})
 	if err != nil {
@@ -311,7 +312,7 @@ func (service *DiscoverService) Reselect(ctx context.Context) (JavDBRouteStatus,
 
 func (service *DiscoverService) projectMovies(
 	ctx context.Context,
-	source []javdb.Movie,
+	source []domain.Movie,
 ) ([]DiscoverMovie, error) {
 	if len(source) == 0 {
 		return []DiscoverMovie{}, nil

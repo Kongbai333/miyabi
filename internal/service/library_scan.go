@@ -10,6 +10,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/google/uuid"
 	"github.com/ppxb/miyabi/internal/codeid"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
@@ -100,7 +101,7 @@ func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
 		return err
 	}
 	if payload.OfflineTaskID != 0 && (payload.TargetID == "" || payload.JavDBID == "" || payload.Code == "") {
-		return fmt.Errorf("离线扫描缺少下载位置或 JavDB 影片信息")
+		return domain.E(domain.KindInvalid, "离线扫描缺少下载位置或 JavDB 影片信息", nil)
 	}
 	// Index reconciliation and the next jobs commit together. A restart after
 	// that commit only needs to finish this task, not enqueue the jobs again.
@@ -113,7 +114,7 @@ func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
 	}
 	source, version := state.source(), state.authorizationVersion
 	if source.AccountID != payload.Source.AccountID || source.Directory.ID != payload.Source.Directory.ID {
-		return fmt.Errorf("媒体目录或登录账号已变更，请重新扫描")
+		return ErrSourceChanged
 	}
 	// Each execution gets a fresh marker, including after a server restart. An
 	// interrupted attempt must not make unvisited files look present on retry.
@@ -140,13 +141,13 @@ func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
 			return fmt.Errorf("read completed download: %w", err)
 		}
 		if payload.OfflineTaskID != 0 && info.ID == source.Directory.ID {
-			return fmt.Errorf("115 返回的是媒体根目录，无法确定本次下载的影片文件")
+			return domain.E(domain.KindConflict, "115 返回的是媒体根目录，无法确定本次下载的影片文件", nil)
 		}
 		payload.TargetPath = fileInfoPath(info)
 		payload.TargetFile = !info.IsDirectory
 		if payload.TargetFile {
 			if !isVideo(info.Name) {
-				return fmt.Errorf("115 下载结果不是视频文件")
+				return domain.E(domain.KindInvalid, "115 下载结果不是视频文件", nil)
 			}
 			payload.Scan.FilesScanned, payload.Scan.VideoFiles = 1, 1
 			if err := savePage(path.Dir(payload.TargetPath), []scanVideo{{File: info.File}}, func(videos []scanVideo) []scanVideo {
@@ -187,7 +188,7 @@ func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
 			observed.add(directory.id, page.Files)
 			for _, entry := range page.Files {
 				if seen[entry.ID] {
-					return false, fmt.Errorf("扫描期间重复遇到文件或目录 %s，请重新扫描", path.Join(directory.path, entry.Name))
+					return false, domain.E(domain.KindConflict, fmt.Sprintf("扫描期间重复遇到文件或目录 %s，请重新扫描", path.Join(directory.path, entry.Name)), nil)
 				}
 				seen[entry.ID] = true
 				if entry.IsDirectory {
@@ -296,7 +297,7 @@ func (service *LibraryService) scanPage(ctx context.Context, source LibrarySourc
 		return pan.FilePage{}, err
 	}
 	if !slices.ContainsFunc(page.Path, func(directory pan.Directory) bool { return directory.ID == source.Directory.ID }) {
-		return pan.FilePage{}, fmt.Errorf("该文件夹已移出媒体目录，请重新扫描")
+		return pan.FilePage{}, domain.E(domain.KindConflict, "该文件夹已移出媒体目录，请重新扫描", nil)
 	}
 	return page, nil
 }

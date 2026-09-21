@@ -9,10 +9,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
-	"github.com/ppxb/miyabi/internal/netx"
-	"github.com/ppxb/miyabi/internal/pan"
-	"github.com/ppxb/miyabi/internal/service"
 	sloggin "github.com/samber/slog-gin"
 )
 
@@ -31,8 +29,60 @@ func (err *requestError) Unwrap() error {
 	return err.err
 }
 
+func (err *requestError) DomainKind() domain.Kind {
+	return domain.KindInvalid
+}
+
+func (err *requestError) PublicMessage() string {
+	var public interface{ PublicMessage() string }
+	if errors.As(err.err, &public) {
+		return public.PublicMessage()
+	}
+	return err.err.Error()
+}
+
 func BadRequest(err error) error {
 	return &requestError{err: err}
+}
+
+func httpStatusForKind(kind domain.Kind) int {
+	switch kind {
+	case domain.KindInvalid:
+		return http.StatusBadRequest
+	case domain.KindUnauthorized:
+		return http.StatusUnauthorized
+	case domain.KindNotFound:
+		return http.StatusNotFound
+	case domain.KindConflict, domain.KindBusy:
+		return http.StatusConflict
+	case domain.KindUpstream:
+		return http.StatusBadGateway
+	case domain.KindCanceled:
+		return statusClientClosedRequest
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func mapErrorStatus(err error) (int, domain.Kind) {
+	kind := domain.KindOf(err)
+	if kind != domain.KindUnexpected {
+		return httpStatusForKind(kind), kind
+	}
+	switch {
+	case ent.IsNotFound(err), errors.Is(err, fs.ErrNotExist):
+		return http.StatusNotFound, domain.KindNotFound
+	default:
+		return http.StatusInternalServerError, domain.KindInternal
+	}
+}
+
+func publicErrorMessage(err error) string {
+	var public interface{ PublicMessage() string }
+	if errors.As(err, &public) {
+		return public.PublicMessage()
+	}
+	return err.Error()
 }
 
 func errorMiddleware(logger *slog.Logger) gin.HandlerFunc {
@@ -43,7 +93,9 @@ func errorMiddleware(logger *slog.Logger) gin.HandlerFunc {
 		}
 
 		err := c.Errors.Last().Err
-		if errors.Is(err, context.Canceled) && errors.Is(c.Request.Context().Err(), context.Canceled) {
+		clientCanceled := errors.Is(c.Request.Context().Err(), context.Canceled) &&
+			(errors.Is(err, context.Canceled) || domain.IsKind(err, domain.KindCanceled))
+		if clientCanceled {
 			c.AbortWithStatus(statusClientClosedRequest)
 			logger.DebugContext(c.Request.Context(), "request canceled",
 				"method", c.Request.Method,
@@ -52,27 +104,29 @@ func errorMiddleware(logger *slog.Logger) gin.HandlerFunc {
 			)
 			return
 		}
-		status := http.StatusInternalServerError
-		var invalidRequest *requestError
-		switch {
-		case errors.As(err, &invalidRequest):
-			status = http.StatusBadRequest
-		case errors.Is(err, service.ErrMediaDirectoryRequired), errors.Is(err, service.ErrMagnetNotFound),
-			errors.Is(err, service.ErrInvalidWatchProgress), errors.Is(err, netx.ErrInvalidProxy):
-			status = http.StatusBadRequest
-		case errors.Is(err, service.ErrWatchHistorySourceChanged), errors.Is(err, service.ErrCacheBusy):
-			status = http.StatusConflict
-		case ent.IsNotFound(err), errors.Is(err, fs.ErrNotExist):
-			status = http.StatusNotFound
-		case errors.Is(err, pan.ErrUnauthorized), errors.Is(err, service.ErrAccessPassword):
-			status = http.StatusUnauthorized
+
+		status, kind := mapErrorStatus(err)
+		message := publicErrorMessage(err)
+
+		attrs := []any{
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", status,
+			"kind", kind.String(),
+			"id", sloggin.GetRequestID(c),
+			"error", err.Error(),
+		}
+		var de *domain.Error
+		if errors.As(err, &de) && de.Cause != nil {
+			attrs = append(attrs, "cause", de.Cause.Error())
 		}
 
-		message := err.Error()
-		var public interface{ PublicMessage() string }
-		if errors.As(err, &public) {
-			message = public.PublicMessage()
+		if status >= http.StatusInternalServerError {
+			logger.ErrorContext(c.Request.Context(), "request failed", attrs...)
+		} else {
+			logger.WarnContext(c.Request.Context(), "request failed", attrs...)
 		}
+
 		c.AbortWithStatusJSON(status, gin.H{"error": message})
 	}
 }
