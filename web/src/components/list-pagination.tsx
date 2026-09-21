@@ -57,6 +57,9 @@ export function ListPagination({
     )
   }
 
+  const singlePage = page <= 1 && !hasMore && (totalPages === undefined || totalPages <= 1)
+  if (singlePage) return null
+
   const items = totalPages === undefined ? [page] : getPageNumbers(page, totalPages)
 
   return (

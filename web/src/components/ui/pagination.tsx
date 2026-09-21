@@ -95,6 +95,7 @@ function PaginationEllipsis({ className, ...props }: React.ComponentProps<'span'
       {...props}
     >
       <MoreHorizontalIcon />
+      <span className="sr-only">更多页码</span>
     </span>
   )
 }

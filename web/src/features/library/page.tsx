@@ -114,15 +114,13 @@ export function LibraryPage({
               }
             />
           )}
-          {page > 1 || library.data.total > 0 ? (
-            <ListPagination
-              page={page}
-              totalPages={Math.max(1, Math.ceil(library.data.total / LIBRARY_PAGE_SIZE))}
-              hasMore={library.data.has_more}
-              disabled={library.isFetching}
-              onPageChange={onPageChange}
-            />
-          ) : null}
+          <ListPagination
+            page={page}
+            totalPages={Math.max(1, Math.ceil(library.data.total / LIBRARY_PAGE_SIZE))}
+            hasMore={library.data.has_more}
+            disabled={library.isFetching}
+            onPageChange={onPageChange}
+          />
         </>
       )}
     </AppPage>
