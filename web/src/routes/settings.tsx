@@ -8,6 +8,7 @@ import { AccessSection } from '@/features/settings/access-section'
 import { AppearanceSection } from '@/features/settings/appearance-section'
 import { DataSection } from '@/features/settings/data-section'
 import { JavDBSection } from '@/features/settings/javdb-section'
+import { MagnetSection } from '@/features/settings/magnet-section'
 import { NetworkSection } from '@/features/settings/network-section'
 import { PanSection } from '@/features/settings/pan-section'
 import { PrivacySection } from '@/features/settings/privacy-section'
@@ -33,6 +34,8 @@ function SettingsPage() {
           <NetworkSection />
           <Separator />
           <JavDBSection />
+          <Separator />
+          <MagnetSection />
           <Separator />
           <PanSection />
           <Separator />
