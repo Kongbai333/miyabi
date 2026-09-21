@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/task"
@@ -26,6 +27,25 @@ type TaskInfo struct {
 	Source        LibrarySource `json:"source"`
 	Scan          ScanProgress  `json:"scan"`
 	OfflineTaskID int           `json:"offline_task_id,omitempty"`
+}
+
+// TaskTypes are the kinds of work a worker pool runs, in the order the task
+// centre lists them. Anything else is refused rather than ignored, so a typo
+// cannot look like a pause that worked.
+var TaskTypes = []string{"scan", "scrape", "cover", "frame"}
+
+// taskPausedSetting records the kinds a pool may not claim. It outlives a
+// restart, because a queue the user stopped must stay stopped: covering the
+// whole library again is not a decision a restart gets to make.
+const taskPausedSetting = "task.paused"
+
+// TaskQueue reports one kind of work: how much is waiting, how much is running
+// and whether the pools may claim more of it.
+type TaskQueue struct {
+	Type    string `json:"type"`
+	Queued  int    `json:"queued"`
+	Running int    `json:"running"`
+	Paused  bool   `json:"paused"`
 }
 
 // TaskJob is internal execution input. API responses never expose raw payloads.
@@ -45,16 +65,18 @@ type TaskRevisions struct {
 type TaskService struct {
 	revisions   TaskRevisions
 	database    *ent.Client
-	queue       contextLock // Enqueue and claim wait until a new mount is published.
-	wake        chan struct{}
+	queue       contextLock   // Enqueue and claim wait until a new mount is published.
+	pending     chan struct{} // Closed and replaced on every notification.
 	mu          sync.Mutex
 	subscribers map[chan struct{}]struct{}
+	paused      map[string]bool
 }
 
 func NewTaskService(database *ent.Client) *TaskService {
 	return &TaskService{
-		database: database, wake: make(chan struct{}, 1),
+		database: database, pending: make(chan struct{}),
 		subscribers: make(map[chan struct{}]struct{}),
+		paused:      make(map[string]bool),
 	}
 }
 
@@ -158,6 +180,47 @@ func (service *TaskService) List(ctx context.Context) ([]TaskInfo, error) {
 		return b.ID - a.ID
 	})
 	return result, nil
+}
+
+// Queues reports what each pool is holding. A paused kind keeps its queued
+// tasks: the workers stop claiming them and whatever is already running
+// finishes on its own.
+func (service *TaskService) Queues(ctx context.Context) ([]TaskQueue, error) {
+	var counts []taskQueueCount
+	if err := service.database.Task.Query().
+		Where(task.StatusIn(task.StatusQueued, task.StatusRunning)).
+		GroupBy(task.FieldType, task.FieldStatus).
+		Aggregate(ent.Count()).
+		Scan(ctx, &counts); err != nil {
+		return nil, fmt.Errorf("count queued tasks: %w", err)
+	}
+	byType := make(map[string]TaskQueue, len(counts))
+	for _, count := range counts {
+		queue := byType[count.Type]
+		queue.Type = count.Type
+		if count.Status == string(task.StatusRunning) {
+			queue.Running = count.Count
+		} else {
+			queue.Queued = count.Count
+		}
+		byType[count.Type] = queue
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	result := make([]TaskQueue, 0, len(TaskTypes))
+	for _, name := range TaskTypes {
+		queue := byType[name]
+		queue.Type = name
+		queue.Paused = service.paused[name]
+		result = append(result, queue)
+	}
+	return result, nil
+}
+
+type taskQueueCount struct {
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	Count  int    `json:"count"`
 }
 
 type metadataTaskGroup struct {
@@ -286,11 +349,133 @@ func (service *TaskService) Recover(ctx context.Context, types []string) error {
 	return nil
 }
 
+// Pause stops the pools from claiming these kinds of work. A task that is
+// already running is not interrupted, so a pause can let the current one finish
+// while the queue behind it stands still.
+func (service *TaskService) Pause(ctx context.Context, types []string) error {
+	return service.setPaused(ctx, types, true)
+}
+
+// Resume lets the pools claim these kinds of work again.
+func (service *TaskService) Resume(ctx context.Context, types []string) error {
+	return service.setPaused(ctx, types, false)
+}
+
+func (service *TaskService) setPaused(ctx context.Context, types []string, paused bool) error {
+	if err := validateTaskTypes(types); err != nil {
+		return err
+	}
+	service.mu.Lock()
+	for _, name := range types {
+		if paused {
+			service.paused[name] = true
+			continue
+		}
+		delete(service.paused, name)
+	}
+	names := service.pausedTypes()
+	service.mu.Unlock()
+	if err := saveSetting(ctx, service.database, taskPausedSetting, names); err != nil {
+		return err
+	}
+	// Waiting pools have to reconsider, and the notification redraws the queues
+	// in the page that asked for the change.
+	service.Notify()
+	return nil
+}
+
+// pausedTypes lists what is paused, in the order the task centre shows it.
+// Callers hold the lock.
+func (service *TaskService) pausedTypes() []string {
+	names := make([]string, 0, len(service.paused))
+	for _, name := range TaskTypes {
+		if service.paused[name] {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// Restore brings back the paused kinds a previous run left behind. Everything
+// else starts clean: an interrupted scan is work to finish, but a queue the user
+// stopped is a decision to keep.
+func (service *TaskService) Restore(ctx context.Context) error {
+	types, found, err := loadSetting[[]string](ctx, service.database, taskPausedSetting)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	for _, name := range types {
+		// A stored value from an older build may name a kind this one does not run.
+		if slices.Contains(TaskTypes, name) {
+			service.paused[name] = true
+		}
+	}
+	return nil
+}
+
+// CancelQueued drops the tasks of these kinds that have not started. A running
+// task is left alone, because the work it is doing cannot be undone halfway.
+func (service *TaskService) CancelQueued(ctx context.Context, types []string) (int, error) {
+	if err := validateTaskTypes(types); err != nil {
+		return 0, err
+	}
+	removed, err := service.database.Task.Delete().Where(
+		task.TypeIn(types...), task.StatusEQ(task.StatusQueued),
+	).Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("cancel queued tasks: %w", err)
+	}
+	if removed > 0 {
+		// A queued metadata task is what the library cards call "in progress".
+		service.NotifyLibraryChanged()
+	}
+	return removed, nil
+}
+
+// claimable drops the paused kinds from what a pool may take.
+func (service *TaskService) claimable(types []string) []string {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if len(service.paused) == 0 {
+		return types
+	}
+	ready := make([]string, 0, len(types))
+	for _, name := range types {
+		if !service.paused[name] {
+			ready = append(ready, name)
+		}
+	}
+	return ready
+}
+
+func validateTaskTypes(types []string) error {
+	if len(types) == 0 {
+		return domain.E(domain.KindInvalid, "缺少任务类型", nil)
+	}
+	for _, name := range types {
+		if !slices.Contains(TaskTypes, name) {
+			return domain.E(domain.KindInvalid, "未知的任务类型："+name, nil)
+		}
+	}
+	return nil
+}
+
+// Claim takes the oldest waiting task of an unpaused kind. Work that is paused
+// stays in the queue until a resume lets a worker take it.
 func (service *TaskService) Claim(ctx context.Context, types []string) (*TaskJob, error) {
 	if err := service.queue.Lock(ctx); err != nil {
 		return nil, err
 	}
 	defer service.queue.Unlock()
+	types = service.claimable(types)
+	if len(types) == 0 {
+		return nil, nil
+	}
 	for {
 		record, err := service.database.Task.Query().Where(
 			task.TypeIn(types...), task.StatusEQ(task.StatusQueued),
@@ -355,8 +540,13 @@ func (service *TaskService) Finish(ctx context.Context, id int, runError error) 
 	return nil
 }
 
+// Pending reports the channel that closes when new work may be waiting. A pool
+// reads it before claiming, so a task enqueued while its workers are busy closes
+// the channel they hold rather than racing for a single wake-up token.
 func (service *TaskService) Pending() <-chan struct{} {
-	return service.wake
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.pending
 }
 
 // Notifications are coalesced. Each consumer reads a fresh database snapshot,
@@ -413,14 +603,15 @@ func (service *TaskService) Revisions() TaskRevisions {
 }
 
 func (service *TaskService) notify(library, offline, history bool) {
-	if !history || library || offline {
-		select {
-		case service.wake <- struct{}{}:
-		default:
-		}
-	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if !history || library || offline {
+		// Closing the channel releases every waiting worker, where a buffered
+		// send would reach only one of the pools. The replacement channel is
+		// what the next wait reads.
+		close(service.pending)
+		service.pending = make(chan struct{})
+	}
 	if library {
 		service.revisions.Library++
 	}

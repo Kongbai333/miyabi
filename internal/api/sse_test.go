@@ -18,9 +18,21 @@ import (
 	"github.com/ppxb/miyabi/internal/service"
 )
 
+// taskStreamBase supplies the queue controls, which a stream test never
+// exercises, so each stream stub only has to describe its own snapshot.
+type taskStreamBase struct{}
+
+func (taskStreamBase) Pause(context.Context, []string) error  { return nil }
+func (taskStreamBase) Resume(context.Context, []string) error { return nil }
+func (taskStreamBase) CancelQueued(context.Context, []string) (int, error) {
+	return 0, nil
+}
+func (taskStreamBase) Queues(context.Context) ([]service.TaskQueue, error) { return nil, nil }
+
 // sseTaskStub is a TaskManager whose snapshot and revisions change when the
 // test publishes an update, mirroring TaskService's coalesced notifications.
 type sseTaskStub struct {
+	taskStreamBase
 	mu          sync.Mutex
 	updates     chan struct{}
 	revisions   service.TaskRevisions
@@ -46,6 +58,10 @@ func (stub *sseTaskStub) List(context.Context) ([]service.TaskInfo, error) {
 	defer stub.mu.Unlock()
 	return []service.TaskInfo{{ID: 1, Type: "scan", Status: task.StatusRunning, Progress: stub.progress,
 		Scan: service.ScanProgress{Stage: "scanning"}}}, nil
+}
+
+func (stub *sseTaskStub) Queues(context.Context) ([]service.TaskQueue, error) {
+	return []service.TaskQueue{{Type: "scan", Running: 1}, {Type: "frame", Queued: 2}}, nil
 }
 
 func (stub *sseTaskStub) Revisions() service.TaskRevisions {
@@ -127,6 +143,14 @@ func TestTaskEventsStreamsSnapshotsAndRevisionsUntilTheClientLeaves(t *testing.T
 		if err := json.Unmarshal([]byte(tasks.data), &infos); err != nil || len(infos) != 1 || infos[0].Progress != progress {
 			t.Fatalf("tasks payload = %s (%v), want progress %d", tasks.data, err, progress)
 		}
+		queues := readEvent(t, reader)
+		if queues.name != "queues" {
+			t.Fatalf("event = %+v, want queues", queues)
+		}
+		var lanes []service.TaskQueue
+		if err := json.Unmarshal([]byte(queues.data), &lanes); err != nil || len(lanes) != 2 || lanes[1].Queued != 2 {
+			t.Fatalf("queues payload = %s (%v)", queues.data, err)
+		}
 		changes := readEvent(t, reader)
 		if changes.name != "changes" {
 			t.Fatalf("event = %+v, want changes", changes)
@@ -168,6 +192,7 @@ func TestTaskEventsFailsBeforeStreamingWhenSnapshotIsUnavailable(t *testing.T) {
 }
 
 type sseFailingTasks struct {
+	taskStreamBase
 	unsubscribed bool
 }
 

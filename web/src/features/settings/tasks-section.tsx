@@ -19,6 +19,11 @@ export function TasksSection() {
           <Link to="/">进入媒体库</Link>
         </Button>
       </SettingRow>
+      <SettingRow title="任务中心" description="查看各队列的排队和运行情况，暂停或清空它们">
+        <Button asChild variant="outline" size="sm">
+          <Link to="/tasks">打开任务中心</Link>
+        </Button>
+      </SettingRow>
       {tasks.isPending ? <p className="text-xs text-muted-foreground">正在读取任务…</p> : null}
       {tasks.isError ? (
         <InlineError onRetry={connection.reconnect} retrying={connection.status === 'connecting'}>

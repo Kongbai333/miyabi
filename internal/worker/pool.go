@@ -14,6 +14,8 @@ type TaskStore interface {
 	Recover(context.Context, []string) error
 	Claim(context.Context, []string) (*service.TaskJob, error)
 	Finish(context.Context, int, error) error
+	// Pending reports a channel that closes when new work may be waiting. Read it
+	// before Claim, so work enqueued in between is not missed.
 	Pending() <-chan struct{}
 }
 
@@ -48,6 +50,9 @@ func (pool *Pool) Run(ctx context.Context) error {
 
 func (pool *Pool) runWorker(ctx context.Context, types []string) error {
 	for ctx.Err() == nil {
+		// Read the wake channel before claiming: work enqueued in between closes
+		// the channel this loop is about to wait on.
+		pending := pool.store.Pending()
 		job, err := pool.store.Claim(ctx, types)
 		if ctx.Err() != nil {
 			return nil
@@ -59,7 +64,7 @@ func (pool *Pool) runWorker(ctx context.Context, types []string) error {
 			select {
 			case <-ctx.Done():
 				return nil
-			case <-pool.store.Pending():
+			case <-pending:
 				continue
 			}
 		}

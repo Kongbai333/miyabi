@@ -1,8 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiGet } from '@/api/client'
+import { apiDelete, apiGet, apiPost } from '@/api/client'
 import type { PanDirectory } from '@/api/pan'
-
 export type LibrarySource = {
   account_id: string
   directory: PanDirectory
@@ -37,7 +36,17 @@ export type ScanTask = {
   }
 }
 
-export const taskKeys = { all: ['tasks'] as const }
+export type TaskType = 'scan' | 'scrape' | 'cover' | 'frame'
+
+// A queue is what the pools hold right now, not what they have finished.
+export type TaskQueue = {
+  type: TaskType
+  queued: number
+  running: number
+  paused: boolean
+}
+
+export const taskKeys = { all: ['tasks'] as const, queues: ['tasks', 'queues'] as const }
 
 export function useTasks() {
   return useQuery({
@@ -52,4 +61,51 @@ export function useTasks() {
 
 export function isTaskActive(task: ScanTask) {
   return task.status === 'queued' || task.status === 'running'
+}
+
+// The queues arrive with every stream event and from their own route on mount,
+// so a page that opens while the stream is down still shows them.
+export function useTaskQueues() {
+  return useQuery({
+    queryKey: taskKeys.queues,
+    queryFn: ({ signal }) => apiGet<TaskQueue[]>('/api/tasks/queues', undefined, signal),
+    staleTime: Infinity,
+    refetchOnMount: 'always',
+    retry: false,
+    refetchOnWindowFocus: false
+  })
+}
+
+// Pausing and resuming answer with the queues they produced, so the page
+// redraws from the response instead of waiting for the next event.
+function useTaskToggle(toggle: (types: TaskType[]) => Promise<TaskQueue[]>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: toggle,
+    retry: false,
+    onSuccess: queues => queryClient.setQueryData(taskKeys.queues, queues)
+  })
+}
+
+export function usePauseTasks() {
+  return useTaskToggle(types => apiPost<TaskQueue[]>('/api/tasks/pause', { types }))
+}
+
+export function useResumeTasks() {
+  return useTaskToggle(types => apiPost<TaskQueue[]>('/api/tasks/resume', { types }))
+}
+
+// Cancelling only reports how many tasks were dropped, so the queues are read
+// again after it.
+export function useCancelQueuedTasks() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (types: TaskType[]) => {
+      const query = new URLSearchParams()
+      for (const type of types) query.append('type', type)
+      return apiDelete<{ cancelled: number }>(`/api/tasks/queued?${query.toString()}`)
+    },
+    retry: false,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: taskKeys.queues })
+  })
 }

@@ -85,7 +85,11 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	playAPI.GET("/:id/stream/:resource", playStreamHandler(deps.Play))
 	playAPI.HEAD("/:id/stream/:resource", playStreamHandler(deps.Play))
 	api.GET("/tasks", tasksHandler(deps.Tasks))
+	api.GET("/tasks/queues", taskQueuesHandler(deps.Tasks))
 	api.GET("/tasks/events", taskEventsHandler(deps.Tasks))
+	api.POST("/tasks/pause", taskPauseHandler(deps.Tasks))
+	api.POST("/tasks/resume", taskResumeHandler(deps.Tasks))
+	api.DELETE("/tasks/queued", taskCancelQueuedHandler(deps.Tasks))
 	api.GET("/offline/tasks", offlineActivityHandler(deps.Offline))
 	api.POST("/offline/magnets", offlineAddMagnetHandler(deps.Offline))
 	monitorAPI := api.Group("/monitors", func(c *gin.Context) {

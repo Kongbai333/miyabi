@@ -69,6 +69,9 @@ func run(args []string) error {
 	}
 	defer discover.Close()
 	tasks := service.NewTaskService(store.Client)
+	if err := tasks.Restore(context.Background()); err != nil {
+		return fmt.Errorf("restore task queues: %w", err)
+	}
 	drive, err := service.NewPanService(context.Background(), store.Client, tasks)
 	if err != nil {
 		return fmt.Errorf("initialize pan service: %w", err)

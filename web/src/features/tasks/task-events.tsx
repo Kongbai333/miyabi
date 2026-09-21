@@ -14,7 +14,7 @@ import { invalidateMovieStates } from '@/api/movie-state-cache'
 import { libraryKeys } from '@/api/library'
 import { monitorKeys } from '@/api/monitor'
 import { offlineKeys } from '@/api/offline'
-import { taskKeys, type ScanTask, type TaskRevisions } from '@/api/tasks'
+import { taskKeys, type ScanTask, type TaskQueue, type TaskRevisions } from '@/api/tasks'
 
 type ConnectionState = 'connecting' | 'connected' | 'disconnected'
 type TaskConnection = { status: ConnectionState; reconnect: () => void }
@@ -35,7 +35,9 @@ export function TaskEventsProvider({ children }: PropsWithChildren) {
     setConnection('connecting')
     setAttempt(value => value + 1)
     snapshotRequested.current = true
-    void queryClient.invalidateQueries({ queryKey: taskKeys.all, exact: true })
+    // Both the snapshot and the queues are refreshed, since the stream is the
+    // only thing that keeps the queues current while it is open.
+    void queryClient.invalidateQueries({ queryKey: taskKeys.all })
   }, [queryClient])
 
   useEffect(() => {
@@ -55,7 +57,7 @@ export function TaskEventsProvider({ children }: PropsWithChildren) {
       // Reconcile cached "running" tasks once per outage, including a missed completion event.
       if (!snapshotRequested.current) {
         snapshotRequested.current = true
-        void queryClient.invalidateQueries({ queryKey: taskKeys.all, exact: true })
+        void queryClient.invalidateQueries({ queryKey: taskKeys.all })
       }
     }
 
@@ -117,6 +119,15 @@ export function TaskEventsProvider({ children }: PropsWithChildren) {
       snapshotRequested.current = false
       waitForActivity()
       setConnection('connected')
+    })
+
+    // The queues ride along with every snapshot, so the task centre stays live
+    // without polling the route it reads on mount.
+    events.addEventListener('queues', async (event: MessageEvent<string>) => {
+      const queues = JSON.parse(event.data) as TaskQueue[]
+      await queryClient.cancelQueries({ queryKey: taskKeys.queues, exact: true })
+      if (events.readyState !== EventSource.OPEN) return
+      queryClient.setQueryData(taskKeys.queues, queues)
     })
 
     events.addEventListener('changes', (event: MessageEvent<string>) => {
