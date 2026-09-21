@@ -1,7 +1,7 @@
+import { useIsMovieViewed } from '@/api/browse-history'
 import type { DiscoverMovie } from '@/api/discover'
 import type { MovieIdentity } from '@/api/movie-state-cache'
 import { useMovieState } from '@/api/movie-states'
-import { useIsMovieViewed } from '@/api/browse-history'
 import { Badge } from '@/components/ui/badge'
 
 export function MovieResourceBadges({ movie }: { movie: DiscoverMovie }) {
@@ -23,7 +23,7 @@ export function MovieStateBadge({
   hideViewed?: boolean
 }) {
   const { state } = useMovieState(movie)
-  const isViewed = useIsMovieViewed(movie.id, movie.code)
+  const isViewed = useIsMovieViewed(movie.id)
 
   if (state === 'in_library') {
     return <Badge variant="library">已入库</Badge>

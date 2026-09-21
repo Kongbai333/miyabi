@@ -3,6 +3,8 @@ const BATCH_SIZE = 50
 const FLUSH_DELAY_MS = 10_000
 const MAX_LOCAL_IDS = 5_000
 
+export const VIEWED_MOVIES_PATH = '/api/discover/viewed'
+
 export type BrowseHistoryOptions = {
   fetchViewed?: () => Promise<string[]>
   syncViewed?: (ids: string[]) => Promise<unknown>
@@ -14,20 +16,20 @@ type PersistedState = {
   pending: string[]
 }
 
+const emptyState = (): PersistedState => ({ ids: [], pending: [] })
+
 function loadPersistedState(key: string): PersistedState {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return { ids: [], pending: [] }
-  }
+  if (typeof window === 'undefined' || !window.localStorage) return emptyState()
   try {
     const raw = window.localStorage.getItem(key)
-    if (!raw) return { ids: [], pending: [] }
+    if (!raw) return emptyState()
     const parsed = JSON.parse(raw) as Partial<PersistedState>
     return {
       ids: Array.isArray(parsed.ids) ? parsed.ids : [],
       pending: Array.isArray(parsed.pending) ? parsed.pending : []
     }
   } catch {
-    return { ids: [], pending: [] }
+    return emptyState()
   }
 }
 
@@ -40,6 +42,9 @@ function savePersistedState(key: string, state: PersistedState): void {
   }
 }
 
+// BrowseHistoryStore remembers which JavDB movie IDs the user has opened.
+// Views are kept locally first and batched to the server; JavDB IDs are the
+// only identity stored, matching the catalogue identity rule in REFACTOR_PLAN.
 export class BrowseHistoryStore {
   private viewedSet: Set<string>
   private pendingList: string[]
@@ -62,20 +67,15 @@ export class BrowseHistoryStore {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') {
-          void this.flush()
-        }
+        if (document.visibilityState === 'hidden') void this.flush()
       })
-      window.addEventListener('pagehide', () => {
-        this.flushKeepalive()
-      })
+      window.addEventListener('pagehide', () => this.flushKeepalive())
     }
   }
 
   init(): void {
     if (this.isInitialized || typeof window === 'undefined') return
     this.isInitialized = true
-
     void this.syncFromServer()
   }
 
@@ -83,90 +83,73 @@ export class BrowseHistoryStore {
     if (!this.fetchViewed) return
     try {
       const serverIDs = await this.fetchViewed()
-      if (Array.isArray(serverIDs) && serverIDs.length > 0) {
-        let changed = false
-        for (const id of serverIDs) {
-          if (!this.viewedSet.has(id)) {
-            this.viewedSet.add(id)
-            changed = true
-          }
+      let changed = false
+      for (const id of serverIDs) {
+        if (!this.viewedSet.has(id)) {
+          this.viewedSet.add(id)
+          changed = true
         }
-        if (changed) {
-          this.persist()
-          this.emit()
-        }
+      }
+      if (changed) {
+        this.persist()
+        this.emit()
       }
     } catch {
       // Ignore network errors on initial sync; local cache remains active
     }
-
-    if (this.pendingList.length > 0) {
-      void this.flush()
-    }
+    if (this.pendingList.length > 0) void this.flush()
   }
 
-  isViewed(id?: string, code?: string): boolean {
-    if (id && this.viewedSet.has(id)) return true
-    if (code && this.viewedSet.has(code)) return true
-    return false
+  isViewed(id?: string): boolean {
+    return !!id && this.viewedSet.has(id)
   }
 
-  recordView(id: string, code?: string): void {
+  recordView(id: string): void {
     const cleanID = id.trim()
-    const cleanCode = code?.trim()
-    if (!cleanID) return
+    if (!cleanID || this.viewedSet.has(cleanID)) return
 
-    let changed = false
-    if (!this.viewedSet.has(cleanID)) {
-      this.viewedSet.add(cleanID)
-      this.pendingList.push(cleanID)
-      changed = true
-    }
-    if (cleanCode && !this.viewedSet.has(cleanCode)) {
-      this.viewedSet.add(cleanCode)
-      this.pendingList.push(cleanCode)
-      changed = true
-    }
-
-    if (!changed) return
-
+    this.viewedSet.add(cleanID)
+    this.pendingList.push(cleanID)
     this.persist()
     this.emit()
 
     if (this.pendingList.length >= BATCH_SIZE) {
-      if (this.flushTimer) {
-        clearTimeout(this.flushTimer)
-        this.flushTimer = null
-      }
+      this.clearFlushTimer()
       void this.flush()
     } else {
       this.scheduleDebouncedFlush()
     }
   }
 
-  private scheduleDebouncedFlush(): void {
+  private clearFlushTimer(): void {
     if (this.flushTimer) clearTimeout(this.flushTimer)
-    this.flushTimer = setTimeout(() => {
+    this.flushTimer = null
+  }
+
+  private scheduleDebouncedFlush(): void {
+    this.clearFlushTimer()
+    const timer = setTimeout(() => {
       this.flushTimer = null
       void this.flush()
     }, FLUSH_DELAY_MS)
-    if (typeof this.flushTimer === 'object' && this.flushTimer !== null && 'unref' in this.flushTimer) {
-      (this.flushTimer as { unref: () => void }).unref()
+    this.flushTimer = timer
+    // Node timers keep the event loop alive; unref them so unit tests can exit.
+    if (typeof timer === 'object' && 'unref' in timer) {
+      (timer as { unref: () => void }).unref()
     }
   }
 
   async flush(): Promise<void> {
     if (this.isFlushing || this.pendingList.length === 0 || !this.syncViewed) return
     this.isFlushing = true
-
     const toSync = [...this.pendingList]
     try {
       await this.syncViewed(toSync)
-      const syncedSet = new Set(toSync)
-      this.pendingList = this.pendingList.filter(item => !syncedSet.has(item))
+      const synced = new Set(toSync)
+      this.pendingList = this.pendingList.filter(item => !synced.has(item))
       this.persist()
     } catch {
-      // Keep in pendingList for next retry
+      // Keep pending entries for the next retry
     } finally {
       this.isFlushing = false
     }
@@ -174,14 +157,12 @@ export class BrowseHistoryStore {
 
   private flushKeepalive(): void {
     if (this.pendingList.length === 0 || typeof window === 'undefined') return
-    const ids = [...this.pendingList]
     try {
-      const body = JSON.stringify({ ids })
+      const body = JSON.stringify({ ids: [...this.pendingList] })
       if (navigator.sendBeacon) {
-        const blob = new Blob([body], { type: 'application/json' })
-        navigator.sendBeacon('/api/discover/viewed', blob)
+        navigator.sendBeacon(VIEWED_MOVIES_PATH, new Blob([body], { type: 'application/json' }))
       } else {
-        void fetch('/api/discover/viewed', {
+        void fetch(VIEWED_MOVIES_PATH, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body,
@@ -198,11 +179,9 @@ export class BrowseHistoryStore {
     if (ids.length > MAX_LOCAL_IDS) {
       ids = ids.slice(ids.length - MAX_LOCAL_IDS)
       this.viewedSet = new Set(ids)
+      this.pendingList = this.pendingList.filter(id => this.viewedSet.has(id))
     }
-    savePersistedState(this.storageKey, {
-      ids,
-      pending: this.pendingList
-    })
+    savePersistedState(this.storageKey, { ids, pending: this.pendingList })
   }
 
   subscribe(listener: () => void): () => void {
@@ -211,9 +190,7 @@ export class BrowseHistoryStore {
   }
 
   private emit(): void {
-    for (const listener of this.listeners) {
-      listener()
-    }
+    for (const listener of this.listeners) listener()
   }
 
   getPendingCount(): number {

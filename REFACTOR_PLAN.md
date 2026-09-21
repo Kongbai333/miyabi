@@ -246,6 +246,7 @@ func (e *Error) Error() string; Unwrap() error; PublicMessage() string
   - **模块沉淀**：由 `scan/identity.go` 与 `scrape/nfo_source.go` 共享该纯函数逻辑，入库与刮削双向统一。
 - `cover.go`、`metadata_snapshot.go` 迁入 `scrape/`。
 - `watch_history.go`、`library.go`、`scan_observations.go` 迁入 `library/`。
+- **浏览历史迁表**：`browse.viewed_movies` 目前是 settings 表里一个最多 5000 个 JavDB ID 的 JSON blob（`service/discover_viewed.go`），每次上报整读整写、每次页面加载全量下发。迁 `library` 时改为 `viewed_movie(javdb_id UNIQUE, viewed_at)` 表，`GET /api/discover/viewed` 改为按 `viewed_at` 倒序分页或带 `since` 增量；接口路径与 JSON 形状不变，前端 `browse-history-store.ts` 只需改拉取逻辑。`DiscoverService` 上的 `ViewedMovieIDs / AddViewedMovieIDs` 与 `viewedMu` 随之移出，catalogue 不持有用户状态。
 - `library_source.go:13` 与 `pan_directory.go:53-61` 的路径拼接合并为 `drive.DirectoryPath`。
 
 **B5 `offline`**（797 行）拆为 `add.go`（入口与锁）、`submit.go`（115 去重启发式）、`sync.go`（轮询与状态转换 `updateTask / markMissing / completeTask`）、`projection.go`（phase 计算 `submissions`）、`locks.go`（原 `offline_operations.go`）。对 `scanPayload` 的直接构造改为调用 `library.EnqueueTargetedScan(...)`。
@@ -544,6 +545,7 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 - 代理：一个开关一个地址；开启时 JavDB 与 JavBus 走代理，115 永远直连。JavBus 无镜像，不做端点管理。
 - 代理（2026-09-20）：`MIYABI_PROXY` 彻底删除，不作初始种子；代理密码不脱敏；校验错误中文化并映射 400（哨兵 `netx.ErrInvalidProxy` 已于 2026-09-21 随 B1 删除，改为 `domain.KindInvalid`）。
 - 代理开关（2026-09-21）：`Normalize` 在地址为空时把 `Enabled` 归一为 false 并持久化，“开启但无地址”不是合法状态。
+- 浏览历史与徽章（2026-09-21，提交 `23c58cc`）：新增"已浏览"功能属于重构窗口内的独立特性，不改变工作线 B 的结构目标。只存 JavDB ID，不存番号。Badge 新增 `library`（紫色，已入库/新入库）与 `frosted`（磨砂，番号/下载中）两个变体，"预览"文案改为"有预览"；这是对"前端样式原样沿用"约束的一次例外，后续 3.9 清单以此为新基线。存储迁表见 B4。
 - 错误模型（2026-09-21）：`domain.Error` 不实现自定义 `Is`，哨兵只按指针身份匹配，分类一律走 `domain.IsKind / KindOf`；两者是正交概念，不混用。基础设施层错误类型（`pan.apiError`、`javdb.APIError / HTTPError / networkError`）通过 `DomainKind()` 与 `PublicMessage()` 接入，不在 service 层逐个翻译。
 - JavBus 数据默认关闭，设置页可开。
 - 磁力按来源加徽章。
