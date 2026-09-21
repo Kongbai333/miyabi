@@ -31,17 +31,8 @@ func (lock *contextLock) Lock(ctx context.Context) error {
 
 func (lock *contextLock) Unlock() { <-lock.gate }
 
-func (lock *contextLock) TryLock() bool {
-	lock.once.Do(func() { lock.gate = make(chan struct{}, 1) })
-	select {
-	case lock.gate <- struct{}{}:
-		return true
-	default:
-		return false
-	}
-}
-
-// Queue coordinates task persistence, claiming, and completion transitions.
+// Queue owns task claiming and completion. It knows nothing about what a
+// task does; handlers report their side effects through FinishedHook.
 type Queue struct {
 	database *ent.Client
 	registry *Registry
@@ -49,33 +40,18 @@ type Queue struct {
 	lock     contextLock
 }
 
-// NewQueue creates a new task Queue.
 func NewQueue(database *ent.Client, registry *Registry, bus *Bus) *Queue {
-	return &Queue{
-		database: database,
-		registry: registry,
-		bus:      bus,
-	}
+	return &Queue{database: database, registry: registry, bus: bus}
 }
 
-// Lock acquires the queue gate.
-func (q *Queue) Lock(ctx context.Context) error {
-	return q.lock.Lock(ctx)
-}
+// Lock serialises enqueue decisions that must observe a consistent queue.
+func (q *Queue) Lock(ctx context.Context) error { return q.lock.Lock(ctx) }
+func (q *Queue) Unlock()                        { q.lock.Unlock() }
 
-// Unlock releases the queue gate.
-func (q *Queue) Unlock() {
-	q.lock.Unlock()
-}
-
-// Recover marks any interrupted running tasks of the given kinds back to queued.
+// Recover returns interrupted running tasks to the queue after a restart.
 func (q *Queue) Recover(ctx context.Context, kinds []Kind) error {
-	types := make([]string, len(kinds))
-	for i, k := range kinds {
-		types[i] = string(k)
-	}
 	if _, err := q.database.Task.Update().Where(
-		task.TypeIn(types...), task.StatusEQ(task.StatusRunning),
+		task.TypeIn(kindStrings(kinds)...), task.StatusEQ(task.StatusRunning),
 	).SetStatus(task.StatusQueued).SetProgress(0).ClearError().Save(ctx); err != nil {
 		return fmt.Errorf("recover interrupted tasks: %w", err)
 	}
@@ -83,19 +59,16 @@ func (q *Queue) Recover(ctx context.Context, kinds []Kind) error {
 	return nil
 }
 
-// Claim claims the next queued task matching the requested kinds and marks it running.
+// Claim marks the oldest queued task of the given kinds running. It returns
+// nil when nothing is queued.
 func (q *Queue) Claim(ctx context.Context, kinds []Kind) (*Job, error) {
 	if err := q.lock.Lock(ctx); err != nil {
 		return nil, err
 	}
 	defer q.lock.Unlock()
-	types := make([]string, len(kinds))
-	for i, k := range kinds {
-		types[i] = string(k)
-	}
 	for {
 		record, err := q.database.Task.Query().Where(
-			task.TypeIn(types...), task.StatusEQ(task.StatusQueued),
+			task.TypeIn(kindStrings(kinds)...), task.StatusEQ(task.StatusQueued),
 		).Order(ent.Asc(task.FieldID)).First(ctx)
 		if ent.IsNotFound(err) {
 			return nil, nil
@@ -113,19 +86,19 @@ func (q *Queue) Claim(ctx context.Context, kinds []Kind) (*Job, error) {
 			continue
 		}
 		q.bus.Notify()
-		return &Job{ID: record.ID, Type: Kind(record.Type), Payload: record.Payload}, nil
+		return jobOf(record), nil
 	}
 }
 
-// Finish completes a task record inside a transaction, invoking the Finished hook if registered.
+// Finish records the outcome and runs the handler's completion hook in the
+// same transaction. Revisions reported by the hook are published after commit.
 func (q *Queue) Finish(ctx context.Context, id int, runError error) error {
-	var job Job
+	var change Change
 	if err := ent.WithTx(ctx, q.database, func(tx *ent.Tx) error {
 		record, err := tx.Task.Get(ctx, id)
 		if err != nil {
 			return err
 		}
-		job = Job{ID: record.ID, Type: Kind(record.Type), Payload: record.Payload}
 		update := tx.Task.UpdateOneID(id)
 		if runError != nil {
 			update.SetStatus(task.StatusFailed).SetError(runError.Error())
@@ -135,23 +108,29 @@ func (q *Queue) Finish(ctx context.Context, id int, runError error) error {
 		if err := update.Exec(ctx); err != nil {
 			return err
 		}
-		if q.registry != nil {
-			if handler, ok := q.registry.Get(job.Type); ok {
-				if hook, ok := handler.(FinishedHook); ok {
-					if err := hook.Finished(ctx, tx, job, runError); err != nil {
-						return err
-					}
-				}
+		job := jobOf(record)
+		if handler, ok := q.registry.Get(job.Type); ok {
+			if hook, ok := handler.(FinishedHook); ok {
+				change, err = hook.Finished(ctx, tx, *job, runError)
+				return err
 			}
 		}
 		return nil
 	}); err != nil {
 		return fmt.Errorf("finish task %d: %w", id, err)
 	}
-	if (job.Type == KindScrape || job.Type == KindCover) && runError != nil {
-		q.bus.NotifyLibraryChanged()
-	} else {
-		q.bus.NotifyOfflineChanged()
-	}
+	q.bus.Changed(change)
 	return nil
+}
+
+func jobOf(record *ent.Task) *Job {
+	return &Job{ID: record.ID, Type: Kind(record.Type), Payload: record.Payload}
+}
+
+func kindStrings(kinds []Kind) []string {
+	types := make([]string, len(kinds))
+	for i, k := range kinds {
+		types[i] = string(k)
+	}
+	return types
 }

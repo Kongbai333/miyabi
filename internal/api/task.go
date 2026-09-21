@@ -2,15 +2,15 @@ package api
 
 import (
 	"context"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ppxb/miyabi/internal/service"
 )
 
 type TaskManager interface {
-	Revisions() service.TaskRevisions
-	List(context.Context) ([]service.TaskInfo, error)
+	Revisions() tasks.TaskRevisions
+	List(context.Context) ([]tasks.TaskInfo, error)
 	Subscribe() (<-chan struct{}, func())
 }
 

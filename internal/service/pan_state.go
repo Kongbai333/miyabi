@@ -61,11 +61,11 @@ func (service *PanService) snapshot() panSnapshot {
 	}
 }
 
-func (state panSnapshot) source() LibrarySource {
-	return LibrarySource{AccountID: state.directory.AccountID, Directory: state.directory.PanLibraryDirectory}
+func (state panSnapshot) source() domain.LibrarySource {
+	return domain.LibrarySource{AccountID: state.directory.AccountID, Directory: state.directory.LibraryDirectory}
 }
 
-func (state panSnapshot) matchesSource(source LibrarySource, version uint64) bool {
+func (state panSnapshot) matchesSource(source domain.LibrarySource, version uint64) bool {
 	return state.authorizationVersion == version && state.directory.AccountID == source.AccountID && state.directory.ID == source.Directory.ID
 }
 
@@ -77,7 +77,7 @@ func (service *PanService) credentials(expected panSnapshot) (panSnapshot, error
 	return current, nil
 }
 
-func (service *PanService) sourceState(source LibrarySource, version uint64) (panSnapshot, error) {
+func (service *PanService) sourceState(source domain.LibrarySource, version uint64) (panSnapshot, error) {
 	state := service.snapshot()
 	if !state.matchesSource(source, version) {
 		return panSnapshot{}, ErrSourceChanged
@@ -102,7 +102,7 @@ func (service *PanService) verifiedSource(ctx context.Context) (panSnapshot, err
 
 // State changes and source-bound database commits take this gate before any
 // transaction. Playback only reads mu and never waits for database writes.
-func (service *PanService) commitSource(ctx context.Context, source LibrarySource, version uint64, write func() error) error {
+func (service *PanService) commitSource(ctx context.Context, source domain.LibrarySource, version uint64, write func() error) error {
 	if err := service.commit.Lock(ctx); err != nil {
 		return err
 	}

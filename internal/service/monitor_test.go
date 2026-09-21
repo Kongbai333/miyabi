@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/ppxb/miyabi/internal/tasks"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func TestMonitorSchedulesRetryAndStaleTransitions(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	tasks := NewTaskService(store.Client)
+	tasks := tasks.NewService(store.Client, tasks.NewRegistry())
 	service := NewMonitorService(store.Client, nil, nil, tasks)
 	ctx := t.Context()
 	record := store.Client.Monitor.Create().SetMovieID("m1").SetCode("ABC-001").

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,7 +17,6 @@ import (
 	"time"
 
 	"github.com/ppxb/miyabi/internal/ent/task"
-	"github.com/ppxb/miyabi/internal/service"
 )
 
 // sseTaskStub is a TaskManager whose snapshot and revisions change when the
@@ -23,7 +24,7 @@ import (
 type sseTaskStub struct {
 	mu          sync.Mutex
 	updates     chan struct{}
-	revisions   service.TaskRevisions
+	revisions   tasks.TaskRevisions
 	progress    int
 	unsubscribe chan struct{}
 }
@@ -41,14 +42,14 @@ func (stub *sseTaskStub) Subscribe() (<-chan struct{}, func()) {
 	}
 }
 
-func (stub *sseTaskStub) List(context.Context) ([]service.TaskInfo, error) {
+func (stub *sseTaskStub) List(context.Context) ([]tasks.TaskInfo, error) {
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
-	return []service.TaskInfo{{ID: 1, Type: "scan", Status: task.StatusRunning, Progress: stub.progress,
-		Scan: service.ScanProgress{Stage: "scanning"}}}, nil
+	return []tasks.TaskInfo{{ID: 1, Type: "scan", Status: task.StatusRunning, Progress: stub.progress,
+		Scan: domain.ScanProgress{Stage: "scanning"}}}, nil
 }
 
-func (stub *sseTaskStub) Revisions() service.TaskRevisions {
+func (stub *sseTaskStub) Revisions() tasks.TaskRevisions {
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
 	return stub.revisions
@@ -119,19 +120,19 @@ func TestTaskEventsStreamsSnapshotsAndRevisionsUntilTheClientLeaves(t *testing.T
 
 	expectSnapshot := func(progress int, revision uint64) {
 		t.Helper()
-		tasks := readEvent(t, reader)
-		if tasks.name != "tasks" {
-			t.Fatalf("event = %+v, want tasks", tasks)
+		event := readEvent(t, reader)
+		if event.name != "tasks" {
+			t.Fatalf("event = %+v, want tasks", event)
 		}
-		var infos []service.TaskInfo
-		if err := json.Unmarshal([]byte(tasks.data), &infos); err != nil || len(infos) != 1 || infos[0].Progress != progress {
-			t.Fatalf("tasks payload = %s (%v), want progress %d", tasks.data, err, progress)
+		var infos []tasks.TaskInfo
+		if err := json.Unmarshal([]byte(event.data), &infos); err != nil || len(infos) != 1 || infos[0].Progress != progress {
+			t.Fatalf("tasks payload = %s (%v), want progress %d", event.data, err, progress)
 		}
 		changes := readEvent(t, reader)
 		if changes.name != "changes" {
 			t.Fatalf("event = %+v, want changes", changes)
 		}
-		var revisions service.TaskRevisions
+		var revisions tasks.TaskRevisions
 		if err := json.Unmarshal([]byte(changes.data), &revisions); err != nil || revisions.Library != revision {
 			t.Fatalf("changes payload = %s (%v), want library revision %d", changes.data, err, revision)
 		}
@@ -175,8 +176,8 @@ func (stub *sseFailingTasks) Subscribe() (<-chan struct{}, func()) {
 	return make(chan struct{}), func() { stub.unsubscribed = true }
 }
 
-func (*sseFailingTasks) List(context.Context) ([]service.TaskInfo, error) {
+func (*sseFailingTasks) List(context.Context) ([]tasks.TaskInfo, error) {
 	return nil, errors.New("database locked")
 }
 
-func (*sseFailingTasks) Revisions() service.TaskRevisions { return service.TaskRevisions{} }
+func (*sseFailingTasks) Revisions() tasks.TaskRevisions { return tasks.TaskRevisions{} }

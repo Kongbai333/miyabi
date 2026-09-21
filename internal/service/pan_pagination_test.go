@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/ent/file"
@@ -94,7 +95,7 @@ func TestScanIncompleteLaterPageDoesNotPruneExistingFiles(t *testing.T) {
 		return page, nil
 	}
 	queued = library.database.Task.GetX(ctx, queued.ID)
-	err := library.Scan(ctx, TaskJob{ID: queued.ID, Type: "scan", Payload: queued.Payload})
+	err := library.Scan(ctx, tasks.Job{ID: queued.ID, Type: "scan", Payload: queued.Payload})
 	if !errors.Is(err, errPanDirectoryIncomplete) {
 		t.Fatalf("incomplete scan = %v", err)
 	}

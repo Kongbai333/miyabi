@@ -70,7 +70,8 @@ type Session interface {
 type Handler interface {
     Kind() tasks.Kind
     Handle(ctx context.Context, job tasks.Job) error
-    Finished(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) error // 可选钩子
+    // 可选钩子 FinishedHook：在完成事务内执行，返回本次变更影响的修订号，队列提交后发布
+    Finished(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) (tasks.Change, error)
 }
 
 // magnet.Source：按番号提供磁力。
@@ -194,23 +195,26 @@ func (e *Error) Error() string; Unwrap() error; PublicMessage() string
 - 现有 42 处内联中文 `fmt.Errorf` 逐一改为 `domain.E(...)`，英文包装链保留在 `Cause`。
 - `pan.apiError` 已有 `PublicMessage()`，映射为 `Kind=Upstream`，115 原文作为 Message。
 
-### 3.4 步骤 B2：`tasks` 包
+### 3.4 步骤 B2：`tasks` 包（已完成，2026-09-21，提交 `2613122` 及后续收口）
 
 从 `service/task.go`（471 行）抽出，拆为：
 
 | 文件 | 内容 |
 | --- | --- |
 | `kind.go` | `type Kind string`，常量 `KindScan/KindScrape/KindCover/KindOffline`；全仓库 8 个文件的字面量替换 |
-| `queue.go` | `Claim / Finish / Recover / Pending`，`queue` 锁 |
-| `registry.go` | `Register(Handler)`，pool 从注册表取处理器与 `Finished` 钩子 |
-| `bus.go` | `Subscribe / Notify* / Revisions`，SSE 扇出 |
+| `queue.go` | `Claim / Finish / Recover`，`Lock / Unlock` 队列门；队列不含任何领域规则，完成后的修订号由处理器的 `Finished` 钩子返回（`tasks.Change` 位掩码），队列在事务提交后发布 |
+| `registry.go` | `Register(Handler)`，`NewHandler(kind, handle, finished)`，`finished` 为 nil 时不实现 `FinishedHook`；pool 从注册表取处理器 |
+| `bus.go` | `Subscribe / Notify / Changed(Change) / Revisions`，一处扇出；`Notify*` 便捷方法保留给业务包 |
 | `workflow.go` | `List / Info / workflowInfos`（scan+scrape+cover 折叠投影）与窗口函数查询 |
-| `payload.go` | `Payload[T]` 泛型读写、`SetField`、`Path(...)` 集中定义 JSON 路径；`storage/indexes.go` 的 `json_extract` 表达式改为引用这里的常量 |
+| `payload.go` | `EncodePayload / DecodePayload[T] / SetPayloadField`，`Path*` 常量与 `JSONExtract(column, parts...)` 集中定义 JSON 路径；`database/indexes.go` 与 service 层所有 `sqljson.Path` / `json_extract` 引用这里的常量 |
 | `pool.go` | 从 `internal/worker/pool.go` 迁入 |
 
-- `TaskService.Finish` 中修改 `movie.scrape_status` 的逻辑（`task.go:328-337`）移到 `library/scrape` 的 `Finished` 钩子。
-- `OfflineService` 对未导出 `workflowInfos` 的调用（`offline.go:353`）改为公开的 `Workflows(ctx, ids)`。
-- `PanService.SelectDirectory` 直接锁 `tasks.queue` 并调用 `ensureScanTask`（`pan_directory.go:79-88`）改为 `drive` 发布 `MountChanged` 事件，`library` 订阅并入队扫描。
+- ✅ `TaskService.Finish` 中修改 `movie.scrape_status` 的逻辑移到 `ScrapeService.Finished` 钩子；失败返回 `ChangeLibrary|ChangeHistory`，成功返回 `ChangeOffline`；`LibraryService.Finished` 返回 `ChangeOffline`。与原行为逐项等价。
+- ✅ `OfflineService` 对未导出 `workflowInfos` 的调用改为公开的 `Workflows(ctx, records)`。
+- ✅ `LibrarySource / LibraryDirectory / ScanProgress` 迁入 `domain/source.go`，service 层不留别名。
+- ✅ 全仓 `"scan" / "scrape" / "cover" / "offline"` 字面量与裸 JSON 路径替换完毕（`data.go`、`library_scan.go`、`metadata_snapshot.go`、`movie_state.go`、`offline.go`、`scrape.go`）。
+- ⏭ `PanService.SelectDirectory` 直接持有队列门并调用 `tasks.EnsureScanTask` 的做法保留到 B3：`drive` 包成型后发布 `MountChanged` 事件，`library` 订阅并入队扫描。见 3.5 `events.go`。
+- ⏭ `worker/offline.go`、`worker/monitor.go` 两个 ticker 循环合并为 `tasks.RunPeriodic` 列在 3.8，随 B5 / B6 迁包时处理。
 
 ### 3.5 步骤 B3：`drive` 包与 `Session`
 
@@ -224,7 +228,7 @@ func (e *Error) Error() string; Unwrap() error; PublicMessage() string
 | `token.go` | `withPanToken` 的主动/被动刷新与 singleflight |
 | `session.go` | `Open(ctx) (Session, error)`：签发时校验账号（带 60 秒 TTL 缓存，替代每次操作都打 `/open/user/info`），封装 `sourceState → withPanSourceToken → checkScanSource` 三段式与 `commitSource` |
 | `pagination.go` | `WalkFilePages / WalkOfflinePages` |
-| `events.go` | `MountChanged` 订阅 |
+| `events.go` | `MountChanged` 订阅；`SelectDirectory` 改为发布事件，`library` 订阅后调用 `tasks.Service.EnqueueScan`，队列门不再被 drive 持有（从 B2 顺延） |
 
 替换点（共十余处）：`library_source.go:29-64`、`library_scan.go:284-301`、`cover.go:218-244`、`play.go:110-136`、`offline.go:189-240`、`scrape.go:66-76` 等。完成后 `ScrapeService`、`PlayService`、`DataService` 对 `library.drive.*` 的 33 处穿透全部消失。
 
@@ -554,3 +558,4 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 - `config.Runtime` 的环境变量命名先内部集中，对外开放的在实现时逐个写进 README。
 - 番号识别与刮削校验（2026-09-20）：针对 `200GANA-3458` 与 `CARIB` 等前缀不一致问题，不引入静态硬匹配字典；在 M4 (B4) 落地“NFO 与文件名双向容差亲缘校验”策略，核心数字一致且前缀包含时自动放行并收敛为 NFO 标准番号。
 - 模型迁移（2026-09-20）：M2 (B1) 放弃临时类型别名（type alias）过渡方案，采用全仓一次性原子替换，避免遗留脚手架代码。
+- 任务引擎（2026-09-21）：`tasks.Queue` 不包含领域规则。完成后要发布哪个修订号由处理器的 `Finished` 钩子以 `tasks.Change` 位掩码返回，队列在事务提交后统一发布；没有钩子的处理器不触发任何修订。B2 迁出时不引入类型别名，`service` 层直接引用 `tasks.*` 与 `domain.*`。

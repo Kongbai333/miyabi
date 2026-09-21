@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"github.com/ppxb/miyabi/internal/domain"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/ent"
@@ -9,7 +10,7 @@ import (
 	"github.com/ppxb/miyabi/internal/nfo"
 )
 
-func testWatchScope(source LibrarySource) WatchHistoryScope {
+func testWatchScope(source domain.LibrarySource) WatchHistoryScope {
 	return WatchHistoryScope{AccountID: source.AccountID, DirectoryID: source.Directory.ID}
 }
 

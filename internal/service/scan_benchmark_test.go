@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/pan"
@@ -54,12 +56,12 @@ func BenchmarkScanObservations(b *testing.B) {
 
 func BenchmarkScanPayload(b *testing.B) {
 	payload := scanPayload{
-		Source: LibrarySource{AccountID: "100", Directory: PanLibraryDirectory{ID: "10", Name: "Movies", Path: "/Movies"}},
-		Scan:   ScanProgress{Stage: "scanning", CurrentPath: "/Movies/fixture", FilesScanned: 50000, VideoFiles: 10000, DirectoriesDiscovered: 10000},
+		Source: domain.LibrarySource{AccountID: "100", Directory: domain.LibraryDirectory{ID: "10", Name: "Movies", Path: "/Movies"}},
+		Scan:   domain.ScanProgress{Stage: "scanning", CurrentPath: "/Movies/fixture", FilesScanned: 50000, VideoFiles: 10000, DirectoriesDiscovered: 10000},
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		encoded, err := encodeTaskPayload(payload)
+		encoded, err := tasks.EncodePayload(payload)
 		if err != nil {
 			b.Fatal(err)
 		}

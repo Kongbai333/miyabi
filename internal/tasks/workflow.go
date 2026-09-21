@@ -58,7 +58,7 @@ func ListWorkflows(ctx context.Context, database *ent.Client) ([]TaskInfo, error
 	}
 	active, err := database.Task.Query().Where(task.TypeIn(string(KindScan), string(KindScrape), string(KindCover)),
 		task.StatusIn(task.StatusQueued, task.StatusRunning), func(s *sql.Selector) {
-			s.Select(fmt.Sprintf("CASE WHEN type = '%s' THEN id ELSE json_extract(payload, '$.%s') END", KindScan, PathScanTaskID)).Distinct()
+			s.Select("CASE WHEN type = '" + string(KindScan) + "' THEN id ELSE " + JSONExtract(task.FieldPayload, PathScanTaskID) + " END").Distinct()
 		}).Select(task.FieldID).Ints(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active library tasks: %w", err)
@@ -185,7 +185,7 @@ func metadataGroups(ctx context.Context, database *ent.Client, records []*ent.Ta
 	for _, record := range records {
 		parents = append(parents, record.ID)
 	}
-	parent := "json_extract(" + children.C(task.FieldPayload) + ", '$.scan_task_id')"
+	parent := JSONExtract(children.C(task.FieldPayload), PathScanTaskID)
 	partition := "PARTITION BY " + parent + ", " + children.C(task.FieldType) + ", " + children.C(task.FieldStatus)
 	groups := sql.Select(
 		children.C(task.FieldID), sql.As(parent, "parent_id"),

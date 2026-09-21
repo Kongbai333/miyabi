@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +16,7 @@ type LibraryManager interface {
 	SaveWatchProgress(context.Context, int, service.WatchProgress) error
 	RemoveWatchHistory(context.Context, service.WatchHistoryScope, []int) (int, error)
 	ClearWatchHistory(context.Context, service.WatchHistoryScope) (int, error)
-	StartScan(context.Context) (service.TaskInfo, error)
+	StartScan(context.Context) (tasks.TaskInfo, error)
 }
 
 type ArtworkReader interface {

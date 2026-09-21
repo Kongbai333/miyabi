@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"strings"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestOfflineSyncContinuesPastIndividualFailures(t *testing.T) {
 		payload := input
 		payload.Hash = fmt.Sprintf("download-%d", index)
 		payload.InfoHash = payload.Hash
-		encoded, err := encodeTaskPayload(payload)
+		encoded, err := tasks.EncodePayload(payload)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,7 +61,7 @@ func TestOfflineSyncContinuesPastIndividualFailures(t *testing.T) {
 			t.Errorf("task %d status = %s, want %s", record.ID, current.Status, want)
 		}
 		if index == 1 || index == 2 {
-			payload, err := decodeTaskPayload[offlinePayload](current.Payload)
+			payload, err := tasks.DecodePayload[offlinePayload](current.Payload)
 			if err != nil || payload.ScanTaskID == 0 || current.Progress != 100 {
 				t.Errorf("completed download did not queue its scan: %+v, %v", current, err)
 			}
@@ -123,7 +124,7 @@ func TestOfflineCompletionWaitsForLocationAcrossRestart(t *testing.T) {
 	if after := service.tasks.Revisions(); after != before {
 		t.Fatalf("unchanged pending completion was announced again: %+v", after)
 	}
-	service = NewOfflineService(service.database, nil, service.drive, NewTaskService(service.database))
+	service = NewOfflineService(service.database, nil, service.drive, tasks.NewService(service.database, tasks.NewRegistry()))
 	activity, err := service.Activity(ctx)
 	if err != nil || len(activity.Tasks) != 1 || activity.Tasks[0].Phase != "processing" ||
 		!activity.Tasks[0].Processing || activity.Tasks[0].ScanTaskID != 0 {
@@ -138,7 +139,7 @@ func TestOfflineCompletionWaitsForLocationAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	current = service.database.Task.GetX(ctx, record.ID)
-	saved, err := decodeTaskPayload[offlinePayload](current.Payload)
+	saved, err := tasks.DecodePayload[offlinePayload](current.Payload)
 	if err != nil || saved.ScanTaskID == 0 || saved.FileID != fileID || saved.AwaitingLocation {
 		t.Fatalf("available file location did not resume indexing: %+v, %v", saved, err)
 	}
@@ -152,12 +153,12 @@ func TestOfflineCompletionWaitsForLocationAcrossRestart(t *testing.T) {
 	service.database.File.Create().SetFileID("video").SetName("video.mp4").SetSize(1).
 		SetAccountID(source.AccountID).SetRootID(source.Directory.ID).SetMovie(film).SaveX(ctx)
 	saved.FileIDs = []string{"video"}
-	encoded, err := encodeTaskPayload(saved)
+	encoded, err := tasks.EncodePayload(saved)
 	if err != nil {
 		t.Fatal(err)
 	}
 	service.database.Task.UpdateOneID(record.ID).SetPayload(encoded).ExecX(ctx)
-	if err := service.tasks.Finish(ctx, saved.ScanTaskID, nil); err != nil {
+	if err := service.tasks.Queue().Finish(ctx, saved.ScanTaskID, nil); err != nil {
 		t.Fatal(err)
 	}
 	activity, err = service.Activity(ctx)
@@ -192,7 +193,7 @@ func TestOfflineMissingLocationStopsPendingWorkflow(t *testing.T) {
 	if state.Status != task.StatusDone || state.Processing || state.Error == nil {
 		t.Fatalf("removed remote history kept an endless pending workflow: %+v", state)
 	}
-	service = NewOfflineService(service.database, nil, service.drive, NewTaskService(service.database))
+	service = NewOfflineService(service.database, nil, service.drive, tasks.NewService(service.database, tasks.NewRegistry()))
 	if err := service.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}

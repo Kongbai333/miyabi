@@ -2,6 +2,8 @@ package service
 
 import (
 	"bytes"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"image"
 	"image/jpeg"
 	"strings"
@@ -16,7 +18,7 @@ import (
 
 type completedScanFixture struct {
 	library *LibraryService
-	queued  TaskInfo
+	queued  tasks.TaskInfo
 	payload scanPayload
 	covered *ent.Task
 	input   coverPayload
@@ -58,7 +60,7 @@ func newCompletedScanFixture(t *testing.T) *completedScanFixture {
 			Directories: []metadataDirectorySnapshot{directorySnapshot("10", nfo, poster, fanart)},
 		},
 	}
-	encoded, err := encodeTaskPayload(input)
+	encoded, err := tasks.EncodePayload(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,14 +68,14 @@ func newCompletedScanFixture(t *testing.T) *completedScanFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := library.tasks.Finish(ctx, queued.ID, nil); err != nil {
+	if err := library.tasks.Queue().Finish(ctx, queued.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	queued, err = library.tasks.EnqueueScan(ctx, payload.Source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload.Scan = ScanProgress{Stage: "scanning"}
+	payload.Scan = domain.ScanProgress{Stage: "scanning"}
 	return &completedScanFixture{library: library, queued: queued, payload: payload, movie: record, covered: covered, input: input,
 		videos: videos, entries: map[string][]pan.File{"10": {videos[0].File, nfo, poster, fanart}},
 	}
@@ -88,7 +90,7 @@ func TestRescanSchedulesOnlyChangedOrIncompleteMetadata(t *testing.T) {
 		{name: "unchanged"},
 		{name: "legacy cover without snapshot", jobs: 1, change: func(t *testing.T, f *completedScanFixture) {
 			f.input.Snapshot = nil
-			encoded, err := encodeTaskPayload(f.input)
+			encoded, err := tasks.EncodePayload(f.input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -124,7 +126,7 @@ func TestRescanSchedulesOnlyChangedOrIncompleteMetadata(t *testing.T) {
 		}},
 		{name: "another root snapshot", jobs: 1, change: func(t *testing.T, f *completedScanFixture) {
 			f.input.Source.Directory.ID = "other-root"
-			encoded, err := encodeTaskPayload(f.input)
+			encoded, err := tasks.EncodePayload(f.input)
 			if err != nil {
 				t.Fatal(err)
 			}

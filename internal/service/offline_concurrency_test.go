@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -140,7 +141,7 @@ func TestOfflineStartedSubmissionKeepsOriginalSourceAfterCancellation(t *testing
 				t.Fatal(result.err)
 			}
 			record := service.database.Task.GetX(t.Context(), result.submission.TaskID)
-			input, err := decodeTaskPayload[offlinePayload](record.Payload)
+			input, err := tasks.DecodePayload[offlinePayload](record.Payload)
 			if err != nil || input.AccountID != source.AccountID || input.DirectoryID != source.Directory.ID ||
 				input.InfoHash != offlineHashA || record.Status != task.StatusRunning || input.ScanTaskID != 0 {
 				t.Fatalf("started submission was lost or moved: %+v %+v %v", record, input, err)
@@ -191,7 +192,7 @@ func TestOfflineSyncRespectsSourceChangesDuringRemotePolling(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			saved, err := decodeTaskPayload[offlinePayload](current.Payload)
+			saved, err := tasks.DecodePayload[offlinePayload](current.Payload)
 			if err != nil || current.Status != task.StatusDone || saved.FileID != "download-folder" || saved.ScanTaskID != 0 {
 				t.Fatalf("completion on replaced mount = %+v, %v", saved, err)
 			}
@@ -202,7 +203,7 @@ func TestOfflineSyncRespectsSourceChangesDuringRemotePolling(t *testing.T) {
 				t.Fatal(err)
 			}
 			current = service.database.Task.GetX(t.Context(), record.ID)
-			saved, err = decodeTaskPayload[offlinePayload](current.Payload)
+			saved, err = tasks.DecodePayload[offlinePayload](current.Payload)
 			if err != nil || saved.ScanTaskID == 0 || service.database.Task.Query().Where(task.TypeEQ("scan")).CountX(t.Context()) != 2 {
 				t.Fatalf("remount did not resume targeted scan: %+v, %v", saved, err)
 			}
@@ -224,12 +225,12 @@ func TestOfflineStaleResultsPreserveCompletionAndNewerPayload(t *testing.T) {
 		}
 	}
 	current := service.database.Task.GetX(t.Context(), record.ID)
-	saved, err := decodeTaskPayload[offlinePayload](current.Payload)
+	saved, err := tasks.DecodePayload[offlinePayload](current.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 	saved.FileIDs = []string{"newly-indexed-video"}
-	encoded, err := encodeTaskPayload(saved)
+	encoded, err := tasks.EncodePayload(saved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +244,7 @@ func TestOfflineStaleResultsPreserveCompletionAndNewerPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	current = service.database.Task.GetX(t.Context(), record.ID)
-	latest, err := decodeTaskPayload[offlinePayload](current.Payload)
+	latest, err := tasks.DecodePayload[offlinePayload](current.Payload)
 	if err != nil || current.Status != task.StatusDone || current.Progress != 100 || current.Error != nil ||
 		latest.ScanTaskID != saved.ScanTaskID || latest.FileID != saved.FileID || !slices.Equal(latest.FileIDs, saved.FileIDs) {
 		t.Fatalf("stale result changed completion: %+v %+v, %v", current, latest, err)
@@ -296,7 +297,7 @@ func TestOfflinePlayableProcessingStillDeduplicatesUntilWorkflowFinishes(t *test
 	source := service.drive.snapshot().source()
 	input := offlinePayload{AccountID: source.AccountID, DirectoryID: source.Directory.ID,
 		Code: "ABP-001", JavDBID: "fixture-movie", Hash: offlineHashA, InfoHash: offlineHashA}
-	encoded, err := encodeTaskPayload(input)
+	encoded, err := tasks.EncodePayload(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,14 +306,14 @@ func TestOfflinePlayableProcessingStillDeduplicatesUntilWorkflowFinishes(t *test
 		t.Fatal(err)
 	}
 	record = service.database.Task.GetX(ctx, record.ID)
-	input, err = decodeTaskPayload[offlinePayload](record.Payload)
+	input, err = tasks.DecodePayload[offlinePayload](record.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 	film := service.database.Movie.Create().SetCode(input.Code).SetJavdbID(input.JavDBID).SaveX(ctx)
 	video := service.database.File.Create().SetFileID("video").SetName("ABP-001.mp4").SetSize(1).
 		SetAccountID(source.AccountID).SetRootID(source.Directory.ID).SetMovie(film).SaveX(ctx)
-	record.Payload, err = setTaskPayloadField(record.Payload, "file_ids", []string{video.FileID})
+	record.Payload, err = tasks.SetPayloadField(record.Payload, "file_ids", []string{video.FileID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +327,7 @@ func TestOfflinePlayableProcessingStillDeduplicatesUntilWorkflowFinishes(t *test
 	if err != nil || result.TaskID != record.ID || result.Phase != "in_library" || !result.Processing || adds != 0 {
 		t.Fatalf("playable processing download was resubmitted: %+v adds=%d err=%v", result, adds, err)
 	}
-	if err := service.tasks.Finish(ctx, input.ScanTaskID, nil); err != nil {
+	if err := service.tasks.Queue().Finish(ctx, input.ScanTaskID, nil); err != nil {
 		t.Fatal(err)
 	}
 	service.database.File.DeleteOne(video).ExecX(ctx)

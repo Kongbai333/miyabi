@@ -39,7 +39,7 @@ func TestDirectoryMountQueuesOnceAndDoesNotInterruptTheSameMount(t *testing.T) {
 		t.Fatalf("mount: %+v err=%v", directory, err)
 	}
 	record := library.database.Task.Query().OnlyX(ctx)
-	payload, err := decodeTaskPayload[scanPayload](record.Payload)
+	payload, err := tasks.DecodePayload[scanPayload](record.Payload)
 	if err != nil || record.Type != "scan" || record.Status != task.StatusQueued ||
 		payload.Source.AccountID != "100" || payload.Source.Directory != directory || payload.TargetID != "" {
 		t.Fatalf("mount did not queue a full scan of its source: %+v %+v err=%v", record, payload, err)
@@ -96,7 +96,7 @@ func TestRemountReusesQueuedScansButReplacesOldRunningScans(t *testing.T) {
 			}
 			if previousStatus == task.StatusRunning {
 				latest := library.database.Task.Query().Order(ent.Desc(task.FieldID)).FirstX(ctx)
-				payload, err := decodeTaskPayload[scanPayload](latest.Payload)
+				payload, err := tasks.DecodePayload[scanPayload](latest.Payload)
 				if err != nil || latest.Status != task.StatusQueued || payload.Source.Directory.ID != "20" {
 					t.Fatalf("remount relies on the invalidated running scan: %+v err=%v", latest, err)
 				}
@@ -217,14 +217,14 @@ func TestWorkerWaitsForMountPublicationBeforeClaimingItsScan(t *testing.T) {
 	}
 	waitContext, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
 	defer cancel()
-	if job, err := library.tasks.Claim(waitContext, []tasks.Kind{tasks.KindScan}); !errors.Is(err, context.DeadlineExceeded) || job != nil {
+	if job, err := library.tasks.Queue().Claim(waitContext, []tasks.Kind{tasks.KindScan}); !errors.Is(err, context.DeadlineExceeded) || job != nil {
 		t.Fatalf("worker claimed a scan before its source was published: %+v err=%v", job, err)
 	}
 	release()
 	if err := awaitPan(t, finished); err != nil {
 		t.Fatal(err)
 	}
-	job, err := library.tasks.Claim(ctx, []tasks.Kind{tasks.KindScan})
+	job, err := library.tasks.Queue().Claim(ctx, []tasks.Kind{tasks.KindScan})
 	if err != nil || job == nil || library.drive.snapshot().directory.ID != "20" {
 		t.Fatalf("published scan is not claimable: %+v err=%v", job, err)
 	}
@@ -237,7 +237,7 @@ func TestAutomaticScanFailureKeepsMountAndAllowsManualRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := library.database.Task.Query().OnlyX(ctx)
-	if err := library.tasks.Finish(ctx, first.ID, errors.New("115 unavailable")); err != nil {
+	if err := library.tasks.Queue().Finish(ctx, first.ID, errors.New("115 unavailable")); err != nil {
 		t.Fatal(err)
 	}
 	source, err := loadLibrarySource(ctx, library.database)

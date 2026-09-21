@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"sync/atomic"
 	"testing"
 
@@ -55,7 +57,7 @@ func TestScanDiscardsLatePageAfterSourceChange(t *testing.T) {
 	drive, ctx := library.drive, t.Context()
 	source := drive.snapshot().source()
 	queued := library.database.Task.Query().Where(task.TypeEQ("scan")).OnlyX(ctx)
-	payload := scanPayload{Source: source, Scan: ScanProgress{Stage: "scanning"}}
+	payload := scanPayload{Source: source, Scan: domain.ScanProgress{Stage: "scanning"}}
 	if err := library.indexScanPage(ctx, queued.ID, "previous-scan", "/Movies", []scanVideo{fixtureVideo("101", "ABP-001.mp4")}, &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +71,7 @@ func TestScanDiscardsLatePageAfterSourceChange(t *testing.T) {
 			Path: []pan.Directory{{ID: source.Directory.ID, Name: source.Directory.Name}}}, nil
 	}
 	finished := make(chan error, 1)
-	go func() { finished <- library.Scan(ctx, TaskJob{ID: queued.ID, Type: "scan", Payload: queued.Payload}) }()
+	go func() { finished <- library.Scan(ctx, tasks.Job{ID: queued.ID, Type: "scan", Payload: queued.Payload}) }()
 	awaitPan(t, started)
 	if err := drive.ClearDirectory(ctx); err != nil {
 		t.Fatal(err)

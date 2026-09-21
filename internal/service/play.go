@@ -44,7 +44,7 @@ type playResource struct {
 
 type playSession struct {
 	id        string
-	source    LibrarySource
+	source    domain.LibrarySource
 	version   uint64
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -138,7 +138,7 @@ func (service *PlayService) Start(ctx context.Context, fileID string) (Playback,
 	return service.createSession(source, state.authorizationVersion, sources)
 }
 
-func (service *PlayService) createSession(source LibrarySource, version uint64, sources []pan.PlaySource) (Playback, error) {
+func (service *PlayService) createSession(source domain.LibrarySource, version uint64, sources []pan.PlaySource) (Playback, error) {
 	session := &playSession{id: uuid.NewString(), source: source, version: version, byURL: make(map[string]int)}
 	result := Playback{ID: session.id, Sources: make([]MediaSource, 0, len(sources))}
 	for _, source := range sources {

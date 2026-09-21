@@ -16,70 +16,66 @@ type Job struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-// Handler handles jobs for a specific Kind.
+// Handler executes jobs of one Kind.
 type Handler interface {
 	Kind() Kind
 	Handle(ctx context.Context, job Job) error
 }
 
-// FinishedHook is an optional interface a Handler can implement to execute inside
-// the completion transaction when a job finishes.
+// FinishedHook runs inside the completion transaction after the task row is
+// updated. It returns which revisions the completed job changed; the queue
+// publishes them once the transaction commits.
 type FinishedHook interface {
-	Finished(ctx context.Context, tx *ent.Tx, job Job, result error) error
+	Finished(ctx context.Context, tx *ent.Tx, job Job, result error) (Change, error)
 }
 
 type HandleFunc func(ctx context.Context, job Job) error
-type FinishedFunc func(ctx context.Context, tx *ent.Tx, job Job, result error) error
+type FinishedFunc func(ctx context.Context, tx *ent.Tx, job Job, result error) (Change, error)
 
-type functionalHandler struct {
-	kind     Kind
-	handle   HandleFunc
+type funcHandler struct {
+	kind   Kind
+	handle HandleFunc
+}
+
+func (h funcHandler) Kind() Kind                                { return h.kind }
+func (h funcHandler) Handle(ctx context.Context, job Job) error { return h.handle(ctx, job) }
+
+type funcHookHandler struct {
+	funcHandler
 	finished FinishedFunc
 }
 
-func (h functionalHandler) Kind() Kind {
-	return h.kind
+func (h funcHookHandler) Finished(ctx context.Context, tx *ent.Tx, job Job, result error) (Change, error) {
+	return h.finished(ctx, tx, job, result)
 }
 
-func (h functionalHandler) Handle(ctx context.Context, job Job) error {
-	return h.handle(ctx, job)
-}
-
-func (h functionalHandler) Finished(ctx context.Context, tx *ent.Tx, job Job, result error) error {
-	if h.finished != nil {
-		return h.finished(ctx, tx, job, result)
+// NewHandler adapts plain functions to Handler. A nil finished hook means the
+// handler has nothing to do at completion and bumps no revision.
+func NewHandler(kind Kind, handle HandleFunc, finished FinishedFunc) Handler {
+	base := funcHandler{kind: kind, handle: handle}
+	if finished == nil {
+		return base
 	}
-	return nil
+	return funcHookHandler{funcHandler: base, finished: finished}
 }
 
-// NewHandler creates a Handler with the given Kind, handle function, and optional finished hook.
-func NewHandler(kind Kind, handle HandleFunc, finished ...FinishedFunc) Handler {
-	var f FinishedFunc
-	if len(finished) > 0 {
-		f = finished[0]
-	}
-	return functionalHandler{kind: kind, handle: handle, finished: f}
-}
-
-// Registry manages task handlers by Kind.
+// Registry maps task kinds to their handlers.
 type Registry struct {
 	mu       sync.RWMutex
 	handlers map[Kind]Handler
 }
 
-// NewRegistry initializes an empty Registry.
 func NewRegistry() *Registry {
 	return &Registry{handlers: make(map[Kind]Handler)}
 }
 
-// Register registers a handler. If a handler with the same Kind exists, it is overwritten.
+// Register installs a handler, replacing any previous one for the same Kind.
 func (r *Registry) Register(h Handler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.handlers[h.Kind()] = h
 }
 
-// Get retrieves a handler for the specified Kind.
 func (r *Registry) Get(k Kind) (Handler, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -87,7 +83,7 @@ func (r *Registry) Get(k Kind) (Handler, bool) {
 	return h, ok
 }
 
-// Kinds returns a sorted list of registered task kinds.
+// Kinds returns registered kinds in sorted order.
 func (r *Registry) Kinds() []Kind {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

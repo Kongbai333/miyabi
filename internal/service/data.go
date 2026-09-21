@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"os"
 	"path/filepath"
 
@@ -109,12 +110,12 @@ func (service *DataService) retainedArtwork(ctx context.Context) (map[string]boo
 	// the movie references it. Extract only those URLs, not the full NFO payloads.
 	var pending []mediaimage.Artwork
 	err = service.scrape.library.database.Task.Query().Where(
-		task.TypeEQ("cover"), task.StatusNEQ(task.StatusDone),
+		task.TypeEQ(tasks.KindCover.String()), task.StatusNEQ(task.StatusDone),
 		func(selector *sql.Selector) {
 			selector.Select(
-				"coalesce(json_extract(payload, '$.artwork.poster'), '') AS poster",
-				"coalesce(json_extract(payload, '$.artwork.fanart'), '') AS fanart",
-				"coalesce(json_extract(payload, '$.artwork.thumbnail'), '') AS thumbnail",
+				"coalesce("+tasks.JSONExtract(task.FieldPayload, tasks.PathArtwork, "poster")+", '') AS poster",
+				"coalesce("+tasks.JSONExtract(task.FieldPayload, tasks.PathArtwork, "fanart")+", '') AS fanart",
+				"coalesce("+tasks.JSONExtract(task.FieldPayload, tasks.PathArtwork, "thumbnail")+", '') AS thumbnail",
 			)
 		},
 	).Select(task.FieldID).Scan(ctx, &pending)

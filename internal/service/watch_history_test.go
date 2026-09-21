@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/domain"
 	"io/fs"
 	"math"
 	"reflect"
@@ -16,7 +17,7 @@ import (
 	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 )
 
-func historyFilm(t *testing.T, library *LibraryService, source LibrarySource, code string) (*ent.Movie, *ent.File) {
+func historyFilm(t *testing.T, library *LibraryService, source domain.LibrarySource, code string) (*ent.Movie, *ent.File) {
 	t.Helper()
 	film := library.database.Movie.Create().SetCode(code).SetTitle("Title " + code).SetWatched(true).SaveX(t.Context())
 	video := library.database.File.Create().SetFileID(code).SetName(code + ".mp4").SetSize(1 << 30).
@@ -37,9 +38,9 @@ func TestWatchHistoryPaginatesRecentMoviesWithBoundedScopedQueries(t *testing.T)
 		library.database.File.Create().SetFileID(fmt.Sprintf("part-%d", i)).SetName("part.mp4").SetSize(1 << 30).
 			SetAccountID(payload.Source.AccountID).SetRootID(payload.Source.Directory.ID).SetMovie(film).ExecX(ctx)
 	}
-	for i, source := range []LibrarySource{
+	for i, source := range []domain.LibrarySource{
 		{AccountID: "other", Directory: payload.Source.Directory},
-		{AccountID: payload.Source.AccountID, Directory: PanLibraryDirectory{ID: "other"}},
+		{AccountID: payload.Source.AccountID, Directory: domain.LibraryDirectory{ID: "other"}},
 	} {
 		film, _ := historyFilm(t, library, source, fmt.Sprintf("HIDDEN-%d", i))
 		library.database.WatchHistory.Create().SetAccountID(source.AccountID).SetRootID(source.Directory.ID).
@@ -154,7 +155,7 @@ func TestWatchProgressValidatesFilesNumbersAndMountedSource(t *testing.T) {
 	}
 	progress.FileID = video.FileID
 	if err := saveSetting(ctx, library.database, panDirectorySetting, panLibraryDirectory{
-		AccountID: "other", PanLibraryDirectory: payload.Source.Directory,
+		AccountID: "other", LibraryDirectory: payload.Source.Directory,
 	}); err != nil {
 		t.Fatal(err)
 	}

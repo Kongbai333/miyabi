@@ -5,7 +5,7 @@ import "testing"
 func TestVerifiedAccountKeepsOnlyItsOwnDirectory(t *testing.T) {
 	library, _, payload := libraryFixture(t)
 	drive := &PanService{database: library.database, directory: panLibraryDirectory{
-		AccountID: payload.Source.AccountID, PanLibraryDirectory: payload.Source.Directory,
+		AccountID: payload.Source.AccountID, LibraryDirectory: payload.Source.Directory,
 	}}
 	if err := drive.discardOtherAccountDirectory(t.Context(), payload.Source.AccountID); err != nil {
 		t.Fatal(err)

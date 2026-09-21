@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"image"
 	"image/color"
 	"image/png"
@@ -28,7 +29,7 @@ func dataFixture(t *testing.T) *DataService {
 	if err != nil {
 		t.Fatal(err)
 	}
-	library := NewLibraryService(store.Client, nil, NewTaskService(store.Client), images)
+	library := NewLibraryService(store.Client, nil, tasks.NewService(store.Client, tasks.NewRegistry()), images)
 	service, err := NewDataService(directory, NewScrapeService(library, nil, images))
 	if err != nil {
 		t.Fatal(err)
@@ -81,14 +82,14 @@ func TestDataCleanupPreservesAllLibraryAndUnfinishedTaskReferences(t *testing.T)
 	retained := append(artworkURLs(filmImages), artworkURLs(additional)...)
 	for index, status := range []task.Status{task.StatusQueued, task.StatusRunning, task.StatusFailed} {
 		artwork := dataArtwork(t, service, uint8(40+index*10))
-		payload, err := encodeTaskPayload(coverPayload{Artwork: &artwork})
+		payload, err := tasks.EncodePayload(coverPayload{Artwork: &artwork})
 		if err != nil {
 			t.Fatal(err)
 		}
 		db.Task.Create().SetType("cover").SetStatus(status).SetPayload(payload).ExecX(ctx)
 		retained = append(retained, artworkURLs(artwork)...)
 	}
-	completed, err := encodeTaskPayload(coverPayload{Artwork: &unused})
+	completed, err := tasks.EncodePayload(coverPayload{Artwork: &unused})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,13 +157,13 @@ func TestDataCleanupAndCoverWorkShareAnExclusiveGate(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	payload, err := encodeTaskPayload(coverPayload{})
+	payload, err := tasks.EncodePayload(coverPayload{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// No drive is installed in the fixture. Cover must honor cancellation while
 	// waiting for the gate, before attempting upstream access or creating files.
-	if err := service.scrape.Cover(ctx, TaskJob{Payload: payload}); !errors.Is(err, context.Canceled) {
+	if err := service.scrape.Cover(ctx, tasks.Job{Payload: payload}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cover did not wait on the cleanup gate: %v", err)
 	}
 	service.scrape.artwork.Unlock()

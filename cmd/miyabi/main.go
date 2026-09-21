@@ -85,7 +85,7 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize data service: %w", err)
 	}
-	taskRegistry.Register(tasks.NewHandler(tasks.KindScan, library.Scan))
+	taskRegistry.Register(tasks.NewHandler(tasks.KindScan, library.Scan, library.Finished))
 	taskRegistry.Register(tasks.NewHandler(tasks.KindScrape, scrape.Scrape, scrape.Finished))
 	taskRegistry.Register(tasks.NewHandler(tasks.KindCover, scrape.Cover, scrape.Finished))
 	// Keep scans, metadata writes and directory sidecars ordered.

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"path"
 	"testing"
 
@@ -108,7 +109,7 @@ func TestRescanRepairsAuxiliaryVideosAndSSNISubtitleAlias(t *testing.T) {
 	metadata := &scanMetadataClient{panClient: client}
 	library.drive.client = metadata
 	queued := library.database.Task.Query().Where(task.TypeEQ("scan")).OnlyX(ctx)
-	if err := library.Scan(ctx, TaskJob{ID: queued.ID, Payload: queued.Payload}); err != nil {
+	if err := library.Scan(ctx, tasks.Job{ID: queued.ID, Payload: queued.Payload}); err != nil {
 		t.Fatal(err)
 	}
 	page, err := library.Movies(ctx, 1, 24)
@@ -133,7 +134,7 @@ func TestRescanRepairsAuxiliaryVideosAndSSNISubtitleAlias(t *testing.T) {
 		t.Fatalf("SSNI-748 playback still points at an auxiliary file: %+v", files)
 	}
 	for _, job := range library.database.Task.Query().Where(task.TypeEQ("scrape")).AllX(ctx) {
-		input, err := decodeTaskPayload[metadataPayload](job.Payload)
+		input, err := tasks.DecodePayload[metadataPayload](job.Payload)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +165,7 @@ func TestNFOIdentifiesOnlyEligibleVideosAndSmallFilesDoNotMakeDirectoryShared(t 
 	metadata := &scanMetadataClient{panClient: client, bodies: map[string][]byte{"nfo": body}}
 	library.drive.client = metadata
 	queued := library.database.Task.Query().Where(task.TypeEQ("scan")).OnlyX(ctx)
-	if err := library.Scan(ctx, TaskJob{ID: queued.ID, Payload: queued.Payload}); err != nil {
+	if err := library.Scan(ctx, tasks.Job{ID: queued.ID, Payload: queued.Payload}); err != nil {
 		t.Fatal(err)
 	}
 	film := library.database.Movie.Query().OnlyX(ctx)

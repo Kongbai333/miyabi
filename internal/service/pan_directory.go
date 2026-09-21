@@ -15,11 +15,9 @@ import (
 
 const panDirectorySetting = "pan.library_directory"
 
-type PanLibraryDirectory = domain.LibraryDirectory
-
 type panLibraryDirectory struct {
 	AccountID string `json:"account_id"`
-	PanLibraryDirectory
+	domain.LibraryDirectory
 }
 
 func (service *PanService) Files(ctx context.Context, directoryID string, page int) (pan.FilePage, error) {
@@ -36,17 +34,17 @@ func (service *PanService) Files(ctx context.Context, directoryID string, page i
 	return files, nil
 }
 
-func (service *PanService) SelectDirectory(ctx context.Context, directoryID string) (PanLibraryDirectory, error) {
+func (service *PanService) SelectDirectory(ctx context.Context, directoryID string) (domain.LibraryDirectory, error) {
 	state := service.snapshot()
 	account, err := service.account(ctx, state)
 	if err != nil {
-		return PanLibraryDirectory{}, fmt.Errorf("get 115 account for directory: %w", err)
+		return domain.LibraryDirectory{}, fmt.Errorf("get 115 account for directory: %w", err)
 	}
 	files, err := withPanToken(ctx, service, state, func(token string) (pan.FilePage, error) {
 		return service.client.List(ctx, token, directoryID, 0, 1)
 	})
 	if err != nil {
-		return PanLibraryDirectory{}, fmt.Errorf("get 115 media directory: %w", err)
+		return domain.LibraryDirectory{}, fmt.Errorf("get 115 media directory: %w", err)
 	}
 	names := make([]string, 0, len(files.Path))
 	for _, directory := range files.Path {
@@ -54,38 +52,38 @@ func (service *PanService) SelectDirectory(ctx context.Context, directoryID stri
 			names = append(names, directory.Name)
 		}
 	}
-	directory := PanLibraryDirectory{
+	directory := domain.LibraryDirectory{
 		ID: directoryID, Name: files.Path[len(files.Path)-1].Name,
 		Path: "/" + strings.Join(names, "/"),
 	}
-	record := panLibraryDirectory{AccountID: account.ID, PanLibraryDirectory: directory}
+	record := panLibraryDirectory{AccountID: account.ID, LibraryDirectory: directory}
 	if err := service.commit.Lock(ctx); err != nil {
-		return PanLibraryDirectory{}, err
+		return domain.LibraryDirectory{}, err
 	}
 	defer service.commit.Unlock()
 	current, err := service.credentials(state)
 	if err != nil {
-		return PanLibraryDirectory{}, err
+		return domain.LibraryDirectory{}, err
 	}
 	if current.directory.AccountID == record.AccountID && current.directory.ID == record.ID {
 		// Retried requests for the current mount must not invalidate active work.
-		return current.directory.PanLibraryDirectory, nil
+		return current.directory.LibraryDirectory, nil
 	}
 	if _, err := service.sourceState(state.source(), state.authorizationVersion); err != nil {
-		return PanLibraryDirectory{}, err
+		return domain.LibraryDirectory{}, err
 	}
-	if err := service.tasks.LockQueue(ctx); err != nil {
-		return PanLibraryDirectory{}, err
+	if err := service.tasks.Queue().Lock(ctx); err != nil {
+		return domain.LibraryDirectory{}, err
 	}
-	defer service.tasks.UnlockQueue()
+	defer service.tasks.Queue().Unlock()
 	if err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
 		if err := saveSetting(ctx, tx.Client(), panDirectorySetting, record); err != nil {
 			return err
 		}
-		_, err := tasks.EnsureScanTask(ctx, tx.Task, LibrarySource{AccountID: account.ID, Directory: directory}, task.StatusQueued)
+		_, err := tasks.EnsureScanTask(ctx, tx.Task, domain.LibrarySource{AccountID: account.ID, Directory: directory}, task.StatusQueued)
 		return err
 	}); err != nil {
-		return PanLibraryDirectory{}, fmt.Errorf("mount media directory and queue scan: %w", err)
+		return domain.LibraryDirectory{}, fmt.Errorf("mount media directory and queue scan: %w", err)
 	}
 	service.mu.Lock()
 	service.directory = record

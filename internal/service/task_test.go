@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 func TestTaskGroupsFoldChildCountsAndLatestState(t *testing.T) {
 	library, parent, payload := libraryFixture(t)
 	ctx := t.Context()
-	if err := library.tasks.Finish(ctx, parent.ID, nil); err != nil {
+	if err := library.tasks.Queue().Finish(ctx, parent.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	var activeID int
@@ -24,11 +25,11 @@ func TestTaskGroupsFoldChildCountsAndLatestState(t *testing.T) {
 		{"scrape", task.StatusDone}, {"scrape", task.StatusDone}, {"scrape", task.StatusFailed},
 		{"cover", task.StatusDone}, {"cover", task.StatusRunning},
 	} {
-		input, err := encodeTaskPayload(metadataPayload{Source: payload.Source, ScanTaskID: parent.ID})
+		input, err := tasks.EncodePayload(metadataPayload{Source: payload.Source, ScanTaskID: parent.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, err = setTaskPayloadField(input, "document", strings.Repeat("fixture document ", 1000))
+		input, err = tasks.SetPayloadField(input, "document", strings.Repeat("fixture document ", 1000))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -53,7 +54,7 @@ func TestTaskGroupsFoldChildCountsAndLatestState(t *testing.T) {
 	if !info.UpdatedAt.Equal(latest.Add(4 * time.Second)) {
 		t.Fatalf("latest change: %v", info.UpdatedAt)
 	}
-	if err := library.tasks.Finish(ctx, activeID, errors.New("fixture cover failure")); err != nil {
+	if err := library.tasks.Queue().Finish(ctx, activeID, errors.New("fixture cover failure")); err != nil {
 		t.Fatal(err)
 	}
 	info, err = library.tasks.Info(ctx, parent.ID)
@@ -65,17 +66,17 @@ func TestTaskGroupsFoldChildCountsAndLatestState(t *testing.T) {
 func TestTaskListRetainsOlderActiveWorkflows(t *testing.T) {
 	library, parent, payload := libraryFixture(t)
 	ctx := t.Context()
-	if err := library.tasks.Finish(ctx, parent.ID, nil); err != nil {
+	if err := library.tasks.Queue().Finish(ctx, parent.ID, nil); err != nil {
 		t.Fatal(err)
 	}
-	input, err := encodeTaskPayload(metadataPayload{Source: payload.Source, ScanTaskID: parent.ID})
+	input, err := tasks.EncodePayload(metadataPayload{Source: payload.Source, ScanTaskID: parent.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := library.database.Task.Create().SetType("scrape").SetPayload(input).Exec(ctx); err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := encodeTaskPayload(payload)
+	encoded, err := tasks.EncodePayload(payload)
 	if err != nil {
 		t.Fatal(err)
 	}

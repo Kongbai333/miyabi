@@ -5,56 +5,33 @@ import (
 	"fmt"
 )
 
-// Common JSON paths within task payloads for SQLite queries and indexing.
+// JSON property names used inside task payloads. SQLite expression indexes
+// and sqljson predicates reference these so the on-disk shape has one owner.
 const (
-	PathAccountID    = "account_id"
-	PathDirectoryID  = "directory_id"
-	PathHash         = "hash"
-	PathJavDBID      = "javdb_id"
-	PathMovieID      = "movie_id"
-	PathScanTaskID   = "scan_task_id"
-	PathScrapeTaskID = "scrape_task_id"
-	PathTargetID     = "target_id"
-	PathSource       = "source"
+	PathAccountID        = "account_id"
+	PathDirectoryID      = "directory_id"
+	PathHash             = "hash"
+	PathJavDBID          = "javdb_id"
+	PathMovieID          = "movie_id"
+	PathScanTaskID       = "scan_task_id"
+	PathScrapeTaskID     = "scrape_task_id"
+	PathTargetID         = "target_id"
+	PathSource           = "source"
+	PathFileID           = "file_id"
+	PathAwaitingLocation = "awaiting_location"
+	PathSnapshot         = "snapshot"
+	PathArtwork          = "artwork"
 )
 
-// Path returns a string slice for sqljson.Path.
-func Path(parts ...string) []string {
-	return parts
-}
-
-// JSONPath formats nested property names into SQLite JSON extraction expressions like "$.a.b".
-func JSONPath(parts ...string) string {
-	if len(parts) == 0 {
-		return "$"
-	}
-	res := "$"
+// JSONExtract renders a SQLite json_extract expression for a nested path.
+func JSONExtract(column string, parts ...string) string {
+	path := "$"
 	for _, part := range parts {
-		res += "." + part
+		path += "." + part
 	}
-	return res
+	return "json_extract(" + column + ", '" + path + "')"
 }
 
-// Payload wraps a typed payload value.
-type Payload[T any] struct {
-	Data T
-}
-
-// Encode marshals the payload into raw JSON.
-func (p Payload[T]) Encode() (json.RawMessage, error) {
-	return EncodePayload(p.Data)
-}
-
-// ParsePayload unmarshals raw JSON into a typed Payload[T].
-func ParsePayload[T any](raw json.RawMessage) (Payload[T], error) {
-	data, err := DecodePayload[T](raw)
-	if err != nil {
-		return Payload[T]{}, err
-	}
-	return Payload[T]{Data: data}, nil
-}
-
-// DecodePayload unmarshals raw JSON into type T.
 func DecodePayload[T any](payload json.RawMessage) (T, error) {
 	var value T
 	if err := json.Unmarshal(payload, &value); err != nil {
@@ -63,7 +40,6 @@ func DecodePayload[T any](payload json.RawMessage) (T, error) {
 	return value, nil
 }
 
-// EncodePayload marshals any value into raw JSON.
 func EncodePayload(value any) (json.RawMessage, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -72,8 +48,8 @@ func EncodePayload(value any) (json.RawMessage, error) {
 	return encoded, nil
 }
 
-// SetPayloadField modifies or adds a top-level field in an existing raw JSON object without
-// deserializing the whole payload.
+// SetPayloadField replaces one top-level field without decoding the rest, so
+// unknown fields written by newer builds survive.
 func SetPayloadField(payload json.RawMessage, key string, value any) (json.RawMessage, error) {
 	fields, err := DecodePayload[map[string]json.RawMessage](payload)
 	if err != nil {

@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/ent"
@@ -11,16 +13,16 @@ import (
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
-func offlineFixture(t *testing.T) (*OfflineService, *ent.Task, offlinePayload, LibrarySource) {
+func offlineFixture(t *testing.T) (*OfflineService, *ent.Task, offlinePayload, domain.LibrarySource) {
 	t.Helper()
 	library, _, scan := libraryFixture(t)
 	drive := &PanService{tasks: library.tasks, tokens: pan.Tokens{AccessToken: "fixture-token"}, directory: panLibraryDirectory{
-		AccountID: scan.Source.AccountID, PanLibraryDirectory: scan.Source.Directory,
+		AccountID: scan.Source.AccountID, LibraryDirectory: scan.Source.Directory,
 	}}
 	service := NewOfflineService(library.database, nil, drive, library.tasks)
 	input := offlinePayload{AccountID: scan.Source.AccountID, DirectoryID: scan.Source.Directory.ID,
 		Code: "ABP-001", JavDBID: "fixture-movie", Hash: "fixture-hash", InfoHash: "fixture-hash"}
-	encoded, err := encodeTaskPayload(input)
+	encoded, err := tasks.EncodePayload(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,7 @@ func TestOfflineProjectionUsesMovieIdentityAndExposesPlaybackID(t *testing.T) {
 			service.database.File.Create().SetFileID("video").SetName("video.mp4").SetSize(1).
 				SetAccountID(source.AccountID).SetRootID(source.Directory.ID).SetMovie(local).SaveX(ctx)
 			input.FileIDs = []string{"video"}
-			encoded, err := encodeTaskPayload(input)
+			encoded, err := tasks.EncodePayload(input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -104,7 +106,7 @@ func TestOfflineCompletionAndTargetedScanCommitTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := decodeTaskPayload[offlinePayload](done.Payload)
+	saved, err := tasks.DecodePayload[offlinePayload](done.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +117,7 @@ func TestOfflineCompletionAndTargetedScanCommitTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := decodeTaskPayload[scanPayload](scan.Payload)
+	target, err := tasks.DecodePayload[scanPayload](scan.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +147,7 @@ func TestOfflineActionDependsOnCurrentFilesRatherThanDownloadHistory(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := decodeTaskPayload[offlinePayload](record.Payload)
+	input, err := tasks.DecodePayload[offlinePayload](record.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,10 +155,10 @@ func TestOfflineActionDependsOnCurrentFilesRatherThanDownloadHistory(t *testing.
 	if err != nil || state.Phase != "processing" {
 		t.Fatalf("processing: %#v %v", state, err)
 	}
-	if err := service.tasks.Finish(ctx, input.ScanTaskID, nil); err != nil {
+	if err := service.tasks.Queue().Finish(ctx, input.ScanTaskID, nil); err != nil {
 		t.Fatal(err)
 	}
-	record.Payload, err = setTaskPayloadField(record.Payload, "file_ids", []string{"video-1"})
+	record.Payload, err = tasks.SetPayloadField(record.Payload, "file_ids", []string{"video-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +203,7 @@ func TestCompletedOfflineTaskDefersScanForAnotherMount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := decodeTaskPayload[offlinePayload](record.Payload)
+	saved, err := tasks.DecodePayload[offlinePayload](record.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +223,7 @@ func TestOfflineActivityKeepsLatestTasksInCurrentSource(t *testing.T) {
 	} {
 		payload := input
 		change(&payload)
-		encoded, err := encodeTaskPayload(payload)
+		encoded, err := tasks.EncodePayload(payload)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -248,7 +250,7 @@ func TestOfflineActivityKeepsLatestTasksInCurrentSource(t *testing.T) {
 		t.Fatalf("latest task: %+v", current)
 	}
 	if err := saveSetting(ctx, service.database, panDirectorySetting, panLibraryDirectory{
-		AccountID: source.AccountID, PanLibraryDirectory: PanLibraryDirectory{ID: "empty-root"},
+		AccountID: source.AccountID, LibraryDirectory: domain.LibraryDirectory{ID: "empty-root"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +270,7 @@ func TestOfflineActivitySeparatesPlaybackFromArtworkAndRechecksFiles(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err = decodeTaskPayload[offlinePayload](download.Payload)
+	input, err = tasks.DecodePayload[offlinePayload](download.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,14 +293,14 @@ func TestOfflineActivitySeparatesPlaybackFromArtworkAndRechecksFiles(t *testing.
 		}
 	}
 	input.FileIDs = []string{"unmatched-video", "matched-video"}
-	encoded, err := encodeTaskPayload(input)
+	encoded, err := tasks.EncodePayload(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := service.database.Task.UpdateOneID(download.ID).SetPayload(encoded).Exec(ctx); err != nil {
 		t.Fatal(err)
 	}
-	metadata, err := encodeTaskPayload(metadataPayload{Source: source, ScanTaskID: input.ScanTaskID, MovieID: film.ID})
+	metadata, err := tasks.EncodePayload(metadataPayload{Source: source, ScanTaskID: input.ScanTaskID, MovieID: film.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +311,7 @@ func TestOfflineActivitySeparatesPlaybackFromArtworkAndRechecksFiles(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.tasks.Finish(ctx, input.ScanTaskID, nil); err != nil {
+	if err := service.tasks.Queue().Finish(ctx, input.ScanTaskID, nil); err != nil {
 		t.Fatal(err)
 	}
 	assertPhase := func(want string, processing bool) {
@@ -321,7 +323,7 @@ func TestOfflineActivitySeparatesPlaybackFromArtworkAndRechecksFiles(t *testing.
 		}
 	}
 	assertPhase("in_library", true)
-	if err := service.tasks.Finish(ctx, cover.ID, nil); err != nil {
+	if err := service.tasks.Queue().Finish(ctx, cover.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	assertPhase("in_library", false)

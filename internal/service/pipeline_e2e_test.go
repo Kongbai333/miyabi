@@ -266,11 +266,11 @@ type pipelineFixture struct {
 	store     *database.Store
 	drive     *fakeDrive
 	catalogue *fakeCatalogue
-	tasks     *TaskService
+	tasks     *tasks.Service
 	library   *LibraryService
 	scrape    *ScrapeService
 	discover  *DiscoverService
-	source    LibrarySource
+	source    domain.LibrarySource
 }
 
 func newPipelineFixture(t *testing.T) *pipelineFixture {
@@ -282,14 +282,14 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	source := LibrarySource{AccountID: "100", Directory: PanLibraryDirectory{ID: "10", Name: "Movies", Path: "/Movies"}}
+	source := domain.LibrarySource{AccountID: "100", Directory: domain.LibraryDirectory{ID: "10", Name: "Movies", Path: "/Movies"}}
 	drive := newFakeDrive(source.AccountID)
 	drive.addDirectory("10", "0", "Movies")
 
-	taskSvc := NewTaskService(store.Client)
+	taskSvc := tasks.NewService(store.Client, tasks.NewRegistry())
 	pan := &PanService{
 		database: store.Client, client: drive, tasks: taskSvc, tokens: panTestTokens("pipeline"),
-		directory: panLibraryDirectory{AccountID: source.AccountID, PanLibraryDirectory: source.Directory},
+		directory: panLibraryDirectory{AccountID: source.AccountID, LibraryDirectory: source.Directory},
 	}
 	if err := saveSetting(ctx, store.Client, panCredentialsSetting, pan.tokens); err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 	discover.javdb = catalogue
 	library := NewLibraryService(store.Client, pan, taskSvc, images)
 	scrape := NewScrapeService(library, discover, images)
-	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScan, library.Scan))
+	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScan, library.Scan, library.Finished))
 	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScrape, scrape.Scrape, scrape.Finished))
 	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindCover, scrape.Cover, scrape.Finished))
 	return &pipelineFixture{
@@ -328,16 +328,16 @@ func (fixture *pipelineFixture) addCatalogueMovie(detail domain.MovieDetail) {
 
 // runQueue mirrors worker.Pool with one worker: claim, handle, finish until
 // nothing is queued. It returns the tasks it executed in order.
-func (fixture *pipelineFixture) runQueue(t *testing.T) []TaskJob {
+func (fixture *pipelineFixture) runQueue(t *testing.T) []tasks.Job {
 	t.Helper()
 	ctx := t.Context()
-	handlers := map[tasks.Kind]func(context.Context, TaskJob) error{
+	handlers := map[tasks.Kind]func(context.Context, tasks.Job) error{
 		tasks.KindScan: fixture.library.Scan, tasks.KindScrape: fixture.scrape.Scrape, tasks.KindCover: fixture.scrape.Cover,
 	}
 	types := []tasks.Kind{tasks.KindCover, tasks.KindScan, tasks.KindScrape}
-	var executed []TaskJob
+	var executed []tasks.Job
 	for range 20 {
-		job, err := fixture.tasks.Claim(ctx, types)
+		job, err := fixture.tasks.Queue().Claim(ctx, types)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -345,7 +345,7 @@ func (fixture *pipelineFixture) runQueue(t *testing.T) []TaskJob {
 			return executed
 		}
 		executed = append(executed, *job)
-		if err := fixture.tasks.Finish(ctx, job.ID, handlers[job.Type](ctx, *job)); err != nil {
+		if err := fixture.tasks.Queue().Finish(ctx, job.ID, handlers[job.Type](ctx, *job)); err != nil {
 			t.Fatal(err)
 		}
 	}

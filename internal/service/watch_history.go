@@ -63,14 +63,14 @@ type WatchHistoryItem struct {
 }
 
 type WatchHistoryPage struct {
-	Source  *LibrarySource     `json:"source,omitempty"`
-	Items   []WatchHistoryItem `json:"items"`
-	Total   int                `json:"total"`
-	Page    int                `json:"page"`
-	HasMore bool               `json:"has_more"`
+	Source  *domain.LibrarySource `json:"source,omitempty"`
+	Items   []WatchHistoryItem    `json:"items"`
+	Total   int                   `json:"total"`
+	Page    int                   `json:"page"`
+	HasMore bool                  `json:"has_more"`
 }
 
-func historyScope(source LibrarySource) predicate.WatchHistory {
+func historyScope(source domain.LibrarySource) predicate.WatchHistory {
 	return watchhistory.And(watchhistory.AccountIDEQ(source.AccountID), watchhistory.RootIDEQ(source.Directory.ID))
 }
 

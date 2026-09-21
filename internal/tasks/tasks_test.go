@@ -49,10 +49,10 @@ func TestPayloadUtilities(t *testing.T) {
 		t.Fatalf("unexpected updated payload: %+v", m)
 	}
 
-	if p := tasks.JSONPath("source", "account_id"); p != "$.source.account_id" {
+	if p := tasks.JSONExtract("payload", "source", "account_id"); p != "json_extract(payload, '$.source.account_id')" {
 		t.Fatalf("json path: %s", p)
 	}
-	if p := tasks.JSONPath(); p != "$" {
+	if p := tasks.JSONExtract("payload"); p != "json_extract(payload, '$')" {
 		t.Fatalf("root json path: %s", p)
 	}
 }
@@ -69,9 +69,9 @@ func TestRegistryAndHandlers(t *testing.T) {
 			handled.Store(true)
 			return nil
 		},
-		func(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) error {
+		func(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) (tasks.Change, error) {
 			finishedHook.Store(true)
-			return nil
+			return tasks.ChangeLibrary, nil
 		},
 	)
 
@@ -98,8 +98,8 @@ func TestRegistryAndHandlers(t *testing.T) {
 	if !ok {
 		t.Fatal("handler does not implement FinishedHook")
 	}
-	if err := hook.Finished(t.Context(), nil, tasks.Job{ID: 1, Type: tasks.KindScan}, nil); err != nil {
-		t.Fatalf("finished: %v", err)
+	if change, err := hook.Finished(t.Context(), nil, tasks.Job{ID: 1, Type: tasks.KindScan}, nil); err != nil || change != tasks.ChangeLibrary {
+		t.Fatalf("finished: change=%v err=%v", change, err)
 	}
 	if !finishedHook.Load() {
 		t.Fatal("finished hook was not called")
@@ -171,10 +171,10 @@ func TestQueueLifecycleAndHook(t *testing.T) {
 	registry.Register(tasks.NewHandler(
 		tasks.KindScan,
 		func(ctx context.Context, job tasks.Job) error { return nil },
-		func(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) error {
+		func(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) (tasks.Change, error) {
 			hookCalled.Store(true)
 			hookResult = result
-			return nil
+			return tasks.ChangeLibrary, nil
 		},
 	))
 
@@ -193,7 +193,7 @@ func TestQueueLifecycleAndHook(t *testing.T) {
 		t.Fatalf("unexpected scan info: %+v", info)
 	}
 
-	job, err := svc.Claim(ctx, []tasks.Kind{tasks.KindScan})
+	job, err := svc.Queue().Claim(ctx, []tasks.Kind{tasks.KindScan})
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestQueueLifecycleAndHook(t *testing.T) {
 		t.Fatalf("unexpected claimed job: %+v", job)
 	}
 
-	if err := svc.Recover(ctx, []tasks.Kind{tasks.KindScan}); err != nil {
+	if err := svc.Queue().Recover(ctx, []tasks.Kind{tasks.KindScan}); err != nil {
 		t.Fatalf("recover: %v", err)
 	}
 	rec, err := store.Client.Task.Get(ctx, info.ID)
@@ -209,13 +209,13 @@ func TestQueueLifecycleAndHook(t *testing.T) {
 		t.Fatalf("recovered task status: %+v, err=%v", rec, err)
 	}
 
-	job, err = svc.Claim(ctx, []tasks.Kind{tasks.KindScan})
+	job, err = svc.Queue().Claim(ctx, []tasks.Kind{tasks.KindScan})
 	if err != nil || job == nil {
 		t.Fatalf("re-claim: %+v, err=%v", job, err)
 	}
 
 	expectedErr := errors.New("scan failure")
-	if err := svc.Finish(ctx, job.ID, expectedErr); err != nil {
+	if err := svc.Queue().Finish(ctx, job.ID, expectedErr); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
 
@@ -251,6 +251,7 @@ func TestPoolWorkerExecution(t *testing.T) {
 			executed <- job.ID
 			return nil
 		},
+		nil,
 	))
 
 	svc := tasks.NewService(store.Client, registry)

@@ -90,7 +90,7 @@ func panConcurrencyFixture(t *testing.T) (*LibraryService, *panStub) {
 	}
 	library.drive = &PanService{
 		database: library.database, client: client, tasks: library.tasks, tokens: panTestTokens("original"),
-		directory: panLibraryDirectory{AccountID: payload.Source.AccountID, PanLibraryDirectory: payload.Source.Directory},
+		directory: panLibraryDirectory{AccountID: payload.Source.AccountID, LibraryDirectory: payload.Source.Directory},
 	}
 	if err := saveSetting(t.Context(), library.database, panCredentialsSetting, library.drive.tokens); err != nil {
 		t.Fatal(err)

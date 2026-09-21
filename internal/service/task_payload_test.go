@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"math"
 	"reflect"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func taskPayloadJSON(t testing.TB, value any) json.RawMessage {
 	t.Helper()
-	payload, err := encodeTaskPayload(value)
+	payload, err := tasks.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +31,7 @@ func TestTaskPayloadRoundTripKeepsMetadataAndIntegerPrecision(t *testing.T) {
 	encoded := taskPayloadJSON(t, input)
 	record := library.database.Task.Create().SetType("cover").SetPayload(encoded).SaveX(t.Context())
 	loaded := library.database.Task.GetX(t.Context(), record.ID)
-	restored, err := decodeTaskPayload[coverPayload](loaded.Payload)
+	restored, err := tasks.DecodePayload[coverPayload](loaded.Payload)
 	if err != nil || !reflect.DeepEqual(restored, input) {
 		t.Fatalf("task round trip changed metadata or IDs: %#v, %v", restored, err)
 	}
@@ -44,7 +45,7 @@ func TestTaskPayloadRoundTripKeepsMetadataAndIntegerPrecision(t *testing.T) {
 
 func TestPartialTaskPayloadUpdateRetainsUnknownFields(t *testing.T) {
 	original := json.RawMessage(`{"hash":"fixture","scan_task_id":9007199254740993,"future":{"nested":[true,1,"text"]}}`)
-	updated, err := setTaskPayloadField(original, "file_ids", []string{"video"})
+	updated, err := tasks.SetPayloadField(original, "file_ids", []string{"video"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,15 +69,15 @@ func TestPartialTaskPayloadUpdateRetainsUnknownFields(t *testing.T) {
 
 func TestTaskPayloadRejectsMalformedValues(t *testing.T) {
 	for _, body := range []string{`{`, `{"scan_task_id":"1"}`, `{"scan_task_id":1.5}`, `{"scan_task_id":9223372036854775808}`} {
-		if _, err := decodeTaskPayload[metadataPayload](json.RawMessage(body)); err == nil {
+		if _, err := tasks.DecodePayload[metadataPayload](json.RawMessage(body)); err == nil {
 			t.Errorf("accepted invalid task payload: %s", body)
 		}
 	}
-	if _, err := encodeTaskPayload(nfo.Movie{Rating: math.NaN()}); err == nil {
+	if _, err := tasks.EncodePayload(nfo.Movie{Rating: math.NaN()}); err == nil {
 		t.Fatal("accepted an unencodable task")
 	}
 	for _, body := range []string{`null`, `[]`, `"text"`} {
-		if _, err := setTaskPayloadField(json.RawMessage(body), "file_ids", []string{"video"}); err == nil {
+		if _, err := tasks.SetPayloadField(json.RawMessage(body), "file_ids", []string{"video"}); err == nil {
 			t.Errorf("patched a non-object task payload: %s", body)
 		}
 	}

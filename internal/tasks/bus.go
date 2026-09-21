@@ -1,10 +1,9 @@
 package tasks
 
-import (
-	"sync"
-)
+import "sync"
 
-// TaskRevisions tracks monotonic change counters broadcasted to clients.
+// Revisions are monotonic change counters broadcast to SSE clients so the
+// frontend can decide which queries to refetch.
 type TaskRevisions struct {
 	Library uint64 `json:"library"`
 	Offline uint64 `json:"offline"`
@@ -12,28 +11,32 @@ type TaskRevisions struct {
 	Monitor uint64 `json:"monitor"`
 }
 
-// Bus distributes task state notifications and revision counts to workers and SSE clients.
+// Change is a bitmask naming which revision counters an event bumps.
+type Change uint8
+
+const (
+	ChangeLibrary Change = 1 << iota
+	ChangeOffline
+	ChangeHistory
+	ChangeMonitor
+)
+
+// Bus fans task notifications out to the worker pool and SSE subscribers.
 type Bus struct {
+	mu          sync.Mutex
 	revisions   TaskRevisions
 	wake        chan struct{}
-	mu          sync.Mutex
 	subscribers map[chan struct{}]struct{}
 }
 
-// NewBus creates a new Bus instance.
 func NewBus() *Bus {
-	return &Bus{
-		wake:        make(chan struct{}, 1),
-		subscribers: make(map[chan struct{}]struct{}),
-	}
+	return &Bus{wake: make(chan struct{}, 1), subscribers: make(map[chan struct{}]struct{})}
 }
 
-// Pending returns a wake channel indicating that pending tasks are available.
-func (b *Bus) Pending() <-chan struct{} {
-	return b.wake
-}
+// Pending signals the pool that queued work may exist.
+func (b *Bus) Pending() <-chan struct{} { return b.wake }
 
-// Subscribe registers a channel to receive notifications. Returns the channel and an unsubscribe func.
+// Subscribe registers an SSE listener. Notifications are coalesced.
 func (b *Bus) Subscribe() (<-chan struct{}, func()) {
 	updates := make(chan struct{}, 1)
 	b.mu.Lock()
@@ -46,52 +49,27 @@ func (b *Bus) Subscribe() (<-chan struct{}, func()) {
 	}
 }
 
-// Notify triggers a general wake notification.
-func (b *Bus) Notify() {
-	b.notify(false, false, false)
-}
+// Notify wakes the pool and subscribers without bumping any revision.
+func (b *Bus) Notify() { b.publish(0) }
 
-// NotifyLibraryChanged triggers a notification with library revision increment.
-func (b *Bus) NotifyLibraryChanged() {
-	b.notify(true, false, true)
-}
+// Changed bumps the named revisions and notifies subscribers. The pool is
+// woken only for library or offline changes, which may have queued work;
+// history and monitor changes never do.
+func (b *Bus) Changed(change Change) { b.publish(change) }
 
-// NotifyOfflineChanged triggers a notification with offline revision increment.
-func (b *Bus) NotifyOfflineChanged() {
-	b.notify(false, true, false)
-}
+func (b *Bus) NotifyLibraryChanged()      { b.publish(ChangeLibrary | ChangeHistory) }
+func (b *Bus) NotifyOfflineChanged()      { b.publish(ChangeOffline) }
+func (b *Bus) NotifyWatchHistoryChanged() { b.publish(ChangeHistory) }
+func (b *Bus) NotifyMonitorChanged()      { b.publish(ChangeMonitor) }
 
-// NotifyWatchHistoryChanged triggers a notification with history revision increment.
-func (b *Bus) NotifyWatchHistoryChanged() {
-	b.notify(false, false, true)
-}
-
-// NotifyMonitorChanged triggers a notification with monitor revision increment without waking the pool.
-func (b *Bus) NotifyMonitorChanged() {
-	b.mu.Lock()
-	b.revisions.Monitor++
-	subscribers := make([]chan struct{}, 0, len(b.subscribers))
-	for subscriber := range b.subscribers {
-		subscribers = append(subscribers, subscriber)
-	}
-	b.mu.Unlock()
-	for _, subscriber := range subscribers {
-		select {
-		case subscriber <- struct{}{}:
-		default:
-		}
-	}
-}
-
-// Revisions returns the current revision counters.
 func (b *Bus) Revisions() TaskRevisions {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.revisions
 }
 
-func (b *Bus) notify(library, offline, history bool) {
-	if !history || library || offline {
+func (b *Bus) publish(change Change) {
+	if change == 0 || change&(ChangeLibrary|ChangeOffline) != 0 {
 		select {
 		case b.wake <- struct{}{}:
 		default:
@@ -99,14 +77,17 @@ func (b *Bus) notify(library, offline, history bool) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if library {
+	if change&ChangeLibrary != 0 {
 		b.revisions.Library++
 	}
-	if offline {
+	if change&ChangeOffline != 0 {
 		b.revisions.Offline++
 	}
-	if history {
+	if change&ChangeHistory != 0 {
 		b.revisions.History++
+	}
+	if change&ChangeMonitor != 0 {
+		b.revisions.Monitor++
 	}
 	for subscriber := range b.subscribers {
 		select {

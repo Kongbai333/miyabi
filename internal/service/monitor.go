@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"log/slog"
 	"strings"
 	"time"
@@ -48,12 +49,12 @@ type MonitorService struct {
 	database *ent.Client
 	discover *DiscoverService
 	offline  *OfflineService
-	tasks    *TaskService
+	tasks    *tasks.Service
 	checking contextLock
 	wake     chan struct{}
 }
 
-func NewMonitorService(database *ent.Client, discover *DiscoverService, offline *OfflineService, tasks *TaskService) *MonitorService {
+func NewMonitorService(database *ent.Client, discover *DiscoverService, offline *OfflineService, tasks *tasks.Service) *MonitorService {
 	return &MonitorService{
 		database: database, discover: discover, offline: offline, tasks: tasks,
 		wake: make(chan struct{}, 1),

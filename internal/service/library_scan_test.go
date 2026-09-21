@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/ppxb/miyabi/internal/domain"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/database"
@@ -16,20 +17,20 @@ import (
 	"github.com/ppxb/miyabi/internal/tasks"
 )
 
-func libraryFixture(t testing.TB) (*LibraryService, TaskInfo, scanPayload) {
+func libraryFixture(t testing.TB) (*LibraryService, tasks.TaskInfo, scanPayload) {
 	t.Helper()
 	store, err := database.Open(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	source := LibrarySource{AccountID: "100", Directory: PanLibraryDirectory{ID: "10", Name: "Movies", Path: "/Movies"}}
+	source := domain.LibrarySource{AccountID: "100", Directory: domain.LibraryDirectory{ID: "10", Name: "Movies", Path: "/Movies"}}
 	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: source.AccountID, PanLibraryDirectory: source.Directory,
+		AccountID: source.AccountID, LibraryDirectory: source.Directory,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	taskSvc := NewTaskService(store.Client)
+	taskSvc := tasks.NewService(store.Client, tasks.NewRegistry())
 	queued, err := taskSvc.EnqueueScan(t.Context(), source)
 	if err != nil {
 		t.Fatal(err)
@@ -40,10 +41,10 @@ func libraryFixture(t testing.TB) (*LibraryService, TaskInfo, scanPayload) {
 	}
 	library := NewLibraryService(store.Client, nil, taskSvc, images)
 	scrape := NewScrapeService(library, nil, images)
-	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScan, library.Scan))
+	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScan, library.Scan, library.Finished))
 	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScrape, scrape.Scrape, scrape.Finished))
 	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindCover, scrape.Cover, scrape.Finished))
-	return library, queued, scanPayload{Source: source, Scan: ScanProgress{Stage: "scanning"}}
+	return library, queued, scanPayload{Source: source, Scan: domain.ScanProgress{Stage: "scanning"}}
 }
 
 func fixtureVideo(id, name string) scanVideo {
@@ -234,7 +235,7 @@ func TestOfflineScanUsesCatalogueIdentityAndKeepsItOnRescan(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := library.database.Task.Query().Where(task.TypeEQ("scrape")).OnlyX(ctx)
-	input, err := decodeTaskPayload[metadataPayload](metadata.Payload)
+	input, err := tasks.DecodePayload[metadataPayload](metadata.Payload)
 	if err != nil || input.MovieID != record.ID || input.JavDBID != payload.JavDBID {
 		t.Fatalf("metadata job lost the known JavDB ID: %#v, %v", input, err)
 	}
@@ -409,11 +410,11 @@ func TestTaskRecoveryLeavesOfflineJobsAloneAndAllowsFailedScanRetry(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err := library.tasks.Claim(ctx, []tasks.Kind{tasks.KindScan})
+	job, err := library.tasks.Queue().Claim(ctx, []tasks.Kind{tasks.KindScan})
 	if err != nil || job == nil || job.ID != queued.ID {
 		t.Fatalf("claimed job = %#v, error = %v", job, err)
 	}
-	if err := library.tasks.Recover(ctx, []tasks.Kind{tasks.KindScan}); err != nil {
+	if err := library.tasks.Queue().Recover(ctx, []tasks.Kind{tasks.KindScan}); err != nil {
 		t.Fatal(err)
 	}
 	scan, err := library.database.Task.Get(ctx, queued.ID)
@@ -424,7 +425,7 @@ func TestTaskRecoveryLeavesOfflineJobsAloneAndAllowsFailedScanRetry(t *testing.T
 	if err != nil || download.Status != task.StatusRunning || download.Progress != 40 {
 		t.Fatalf("offline task changed during recovery: %#v, error = %v", download, err)
 	}
-	if err := library.tasks.Finish(ctx, queued.ID, errors.New("fixture failure")); err != nil {
+	if err := library.tasks.Queue().Finish(ctx, queued.ID, errors.New("fixture failure")); err != nil {
 		t.Fatal(err)
 	}
 	retry, err := library.tasks.EnqueueScan(ctx, payload.Source)

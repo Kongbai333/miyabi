@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/ent"
@@ -49,7 +51,7 @@ func BenchmarkOfflineActivityHistory(b *testing.B) {
 		for batch := range 10 {
 			var jobs []*ent.TaskCreate
 			for i := range 500 {
-				input, err := encodeTaskPayload(offlinePayload{
+				input, err := tasks.EncodePayload(offlinePayload{
 					Code: "ABP-001", JavDBID: "movie", Hash: fmt.Sprintf("%040d", i%50),
 					InfoHash: fmt.Sprintf("%040d", i%50), AccountID: payload.Source.AccountID,
 					DirectoryID: payload.Source.Directory.ID,
@@ -80,7 +82,7 @@ func BenchmarkOfflineActivityHistory(b *testing.B) {
 
 func BenchmarkTaskPayload(b *testing.B) {
 	input := coverPayload{
-		metadataPayload: metadataPayload{Source: LibrarySource{AccountID: "100", Directory: PanLibraryDirectory{ID: "10", Path: "/Movies"}},
+		metadataPayload: metadataPayload{Source: domain.LibrarySource{AccountID: "100", Directory: domain.LibraryDirectory{ID: "10", Path: "/Movies"}},
 			ScanTaskID: 1, MovieID: 2, Code: "ABP-001", JavDBID: "movie"},
 		Document: nfo.Movie{Code: "ABP-001", Title: "Fixture title", Rating: 4.5},
 		Snapshot: &metadataSnapshot{Videos: "fingerprint", Directories: []metadataDirectorySnapshot{{ID: "10"}}},
@@ -95,7 +97,7 @@ func BenchmarkTaskPayload(b *testing.B) {
 	b.Run("encode", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			encoded, err := encodeTaskPayload(input)
+			encoded, err := tasks.EncodePayload(input)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -113,7 +115,7 @@ func BenchmarkTaskPayload(b *testing.B) {
 			if err := json.Unmarshal(body, &record.Payload); err != nil {
 				b.Fatal(err)
 			}
-			decoded, err := decodeTaskPayload[coverPayload](record.Payload)
+			decoded, err := tasks.DecodePayload[coverPayload](record.Payload)
 			if err != nil {
 				b.Fatal(err)
 			}

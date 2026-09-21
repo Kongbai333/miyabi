@@ -105,7 +105,7 @@ func TestProjectMoviesAddsLibraryTaskAndReleaseState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "100", PanLibraryDirectory: PanLibraryDirectory{ID: "10", Path: "/Movies"},
+		AccountID: "100", LibraryDirectory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 	defer service.Close()
 	loads := 0
 	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "100", PanLibraryDirectory: PanLibraryDirectory{ID: "10", Path: "/Movies"},
+		AccountID: "100", LibraryDirectory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "100", PanLibraryDirectory: PanLibraryDirectory{ID: "10", Path: "/Movies"},
+		AccountID: "100", LibraryDirectory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 		t.Fatalf("scanned state = %s, loads = %d", got, loads)
 	}
 	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "100", PanLibraryDirectory: PanLibraryDirectory{ID: "20", Path: "/Other"},
+		AccountID: "100", LibraryDirectory: domain.LibraryDirectory{ID: "20", Path: "/Other"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 		t.Fatalf("movie outside the mounted root = %s, loads = %d", got, loads)
 	}
 	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "200", PanLibraryDirectory: PanLibraryDirectory{ID: "10", Path: "/Movies"},
+		AccountID: "200", LibraryDirectory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
 	}); err != nil {
 		t.Fatal(err)
 	}

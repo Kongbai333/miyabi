@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"net/http"
 	"sync"
 	"time"
@@ -50,9 +51,9 @@ type panClient interface {
 }
 
 type PanAccountStatus struct {
-	Connected bool                 `json:"connected"`
-	Account   *pan.Account         `json:"account,omitempty"`
-	Directory *PanLibraryDirectory `json:"directory,omitempty"`
+	Connected bool                     `json:"connected"`
+	Account   *pan.Account             `json:"account,omitempty"`
+	Directory *domain.LibraryDirectory `json:"directory,omitempty"`
 }
 
 type PanLoginSession struct {
@@ -76,7 +77,7 @@ type panLoginSession struct {
 type PanService struct {
 	database *ent.Client
 	client   panClient
-	tasks    *TaskService
+	tasks    *tasks.Service
 
 	// mu protects memory only. commit serializes persistence with publication.
 	mu                   sync.Mutex
@@ -92,7 +93,7 @@ type PanService struct {
 	closed               bool
 }
 
-func NewPanService(ctx context.Context, database *ent.Client, tasks *TaskService) (*PanService, error) {
+func NewPanService(ctx context.Context, database *ent.Client, tasks *tasks.Service) (*PanService, error) {
 	tokens, _, err := loadSetting[pan.Tokens](ctx, database, panCredentialsSetting)
 	if err != nil {
 		return nil, err
@@ -159,7 +160,7 @@ func (service *PanService) Account(ctx context.Context) (PanAccountStatus, error
 	status := PanAccountStatus{Connected: true, Account: &account}
 	directory := service.snapshot().directory
 	if directory.AccountID == account.ID {
-		value := directory.PanLibraryDirectory
+		value := directory.LibraryDirectory
 		status.Directory = &value
 	}
 	return status, nil

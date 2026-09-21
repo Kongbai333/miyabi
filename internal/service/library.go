@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
@@ -15,8 +16,6 @@ import (
 	"github.com/ppxb/miyabi/internal/ent/tag"
 	mediaimage "github.com/ppxb/miyabi/internal/image"
 )
-
-type LibrarySource = domain.LibrarySource
 
 type LibraryMovie struct {
 	ID           int                `json:"id"`
@@ -50,11 +49,11 @@ type LibraryEntity struct {
 }
 
 type LibraryPage struct {
-	Source  *LibrarySource `json:"source,omitempty"`
-	Movies  []LibraryMovie `json:"movies"`
-	Total   int            `json:"total"`
-	Page    int            `json:"page"`
-	HasMore bool           `json:"has_more"`
+	Source  *domain.LibrarySource `json:"source,omitempty"`
+	Movies  []LibraryMovie        `json:"movies"`
+	Total   int                   `json:"total"`
+	Page    int                   `json:"page"`
+	HasMore bool                  `json:"has_more"`
 }
 
 type LibraryFile struct {
@@ -68,24 +67,24 @@ type LibraryService struct {
 	images   *mediaimage.Cache
 	database *ent.Client
 	drive    *PanService
-	tasks    *TaskService
+	tasks    *tasks.Service
 }
 
-func NewLibraryService(database *ent.Client, drive *PanService, tasks *TaskService, images *mediaimage.Cache) *LibraryService {
+func NewLibraryService(database *ent.Client, drive *PanService, tasks *tasks.Service, images *mediaimage.Cache) *LibraryService {
 	return &LibraryService{database: database, drive: drive, tasks: tasks, images: images}
 }
 
 // Browsing an existing index only reads SQLite. 115 is contacted when scanning,
 // not on each visit to the library or while paging through indexed movies.
-func loadLibrarySource(ctx context.Context, database *ent.Client) (*LibrarySource, error) {
+func loadLibrarySource(ctx context.Context, database *ent.Client) (*domain.LibrarySource, error) {
 	directory, found, err := loadSetting[panLibraryDirectory](ctx, database, panDirectorySetting)
 	if err != nil || !found {
 		return nil, err
 	}
-	return &LibrarySource{AccountID: directory.AccountID, Directory: directory.PanLibraryDirectory}, nil
+	return &domain.LibrarySource{AccountID: directory.AccountID, Directory: directory.LibraryDirectory}, nil
 }
 
-func libraryFiles(source LibrarySource) predicate.File {
+func libraryFiles(source domain.LibrarySource) predicate.File {
 	return file.And(file.AccountIDEQ(source.AccountID), file.RootIDEQ(source.Directory.ID))
 }
 

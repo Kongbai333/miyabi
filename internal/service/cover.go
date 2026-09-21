@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"strings"
 
 	"github.com/ppxb/miyabi/internal/codeid"
@@ -15,8 +16,8 @@ import (
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
-func (service *ScrapeService) Cover(ctx context.Context, job TaskJob) error {
-	input, err := decodeTaskPayload[coverPayload](job.Payload)
+func (service *ScrapeService) Cover(ctx context.Context, job tasks.Job) error {
+	input, err := tasks.DecodePayload[coverPayload](job.Payload)
 	if err != nil {
 		return err
 	}
@@ -30,7 +31,7 @@ func (service *ScrapeService) Cover(ctx context.Context, job TaskJob) error {
 	return service.processCover(ctx, job, input)
 }
 
-func (service *ScrapeService) processCover(ctx context.Context, job TaskJob, input coverPayload) error {
+func (service *ScrapeService) processCover(ctx context.Context, job tasks.Job, input coverPayload) error {
 	input.Code = codeid.Normalize(input.Code)
 	input.Document.Code = codeid.Normalize(input.Document.Code)
 	version, err := service.begin(ctx, input.metadataPayload)
@@ -76,7 +77,7 @@ func (service *ScrapeService) processCover(ctx context.Context, job TaskJob, inp
 		return fmt.Errorf("read cached fanart: %w", err)
 	}
 	input.Artwork = &artwork
-	encoded, err := encodeTaskPayload(input)
+	encoded, err := tasks.EncodePayload(input)
 	if err != nil {
 		return err
 	}
@@ -108,7 +109,7 @@ func (service *ScrapeService) processCover(ctx context.Context, job TaskJob, inp
 	}
 	snapshot.Videos = videoFingerprint(videos)
 	input.Snapshot = snapshot
-	encoded, err = encodeTaskPayload(input)
+	encoded, err = tasks.EncodePayload(input)
 	if err != nil {
 		return err
 	}
@@ -133,7 +134,7 @@ func (service *ScrapeService) processCover(ctx context.Context, job TaskJob, inp
 	return nil
 }
 
-func (service *ScrapeService) originImage(ctx context.Context, source LibrarySource, version uint64, entry pan.File) ([]byte, error) {
+func (service *ScrapeService) originImage(ctx context.Context, source domain.LibrarySource, version uint64, entry pan.File) ([]byte, error) {
 	info, err := service.library.sourceInfo(ctx, source, version, entry.ID)
 	if err != nil {
 		return nil, fmt.Errorf("find NFO artwork: %w", err)
@@ -220,7 +221,7 @@ func verifyCoverOrigin(input coverPayload, directoryID string, current nfo.Movie
 	return nil
 }
 
-func (service *ScrapeService) uploadSidecar(ctx context.Context, source LibrarySource, version uint64, directory movieDirectory, name string, body []byte) error {
+func (service *ScrapeService) uploadSidecar(ctx context.Context, source domain.LibrarySource, version uint64, directory movieDirectory, name string, body []byte) error {
 	state, err := service.library.drive.sourceState(source, version)
 	if err != nil {
 		return err

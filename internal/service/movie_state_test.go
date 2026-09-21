@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/ent/file"
@@ -34,12 +36,12 @@ func TestMovieStatesFollowDownloadThroughIndexingWithoutCatalogueRequests(t *tes
 	}
 	assertState(MovieProcessing, 0)
 	download := offline.database.Task.GetX(ctx, record.ID)
-	saved, err := decodeTaskPayload[offlinePayload](download.Payload)
+	saved, err := tasks.DecodePayload[offlinePayload](download.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 	scan := offline.database.Task.GetX(ctx, saved.ScanTaskID)
-	payload, err := decodeTaskPayload[scanPayload](scan.Payload)
+	payload, err := tasks.DecodePayload[scanPayload](scan.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,21 +59,21 @@ func TestMovieStatesFollowDownloadThroughIndexingWithoutCatalogueRequests(t *tes
 		!activity.Tasks[0].Processing || activity.Tasks[0].LibraryID != *indexed.MovieID {
 		t.Fatalf("indexed download is not playable during the scan: %+v err=%v", activity, err)
 	}
-	saved, err = decodeTaskPayload[offlinePayload](offline.database.Task.GetX(ctx, record.ID).Payload)
+	saved, err = tasks.DecodePayload[offlinePayload](offline.database.Task.GetX(ctx, record.ID).Payload)
 	if err != nil || len(saved.FileIDs) != 1 || saved.FileIDs[0] != video.ID {
 		t.Fatalf("committed files are missing or duplicated: %+v err=%v", saved, err)
 	}
 	// A failed metadata job does not revoke playback of an indexed video.
-	metadata, err := encodeTaskPayload(metadataPayload{Source: source, ScanTaskID: scan.ID,
+	metadata, err := tasks.EncodePayload(metadataPayload{Source: source, ScanTaskID: scan.ID,
 		MovieID: *indexed.MovieID, Code: input.Code, JavDBID: input.JavDBID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	scrape := offline.database.Task.Create().SetType("scrape").SetPayload(metadata).SaveX(ctx)
-	if err := offline.tasks.Finish(ctx, scan.ID, nil); err != nil {
+	if err := offline.tasks.Queue().Finish(ctx, scan.ID, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := offline.tasks.Finish(ctx, scrape.ID, errors.New("metadata unavailable")); err != nil {
+	if err := offline.tasks.Queue().Finish(ctx, scrape.ID, errors.New("metadata unavailable")); err != nil {
 		t.Fatal(err)
 	}
 	assertState(MovieInLibrary, *indexed.MovieID)
@@ -90,7 +92,7 @@ func TestMovieStatesScopePendingWorkToTheMountedAccountAndRoot(t *testing.T) {
 	discover := &DiscoverService{database: offline.database}
 	// A completed download may await scan creation after its mount returns.
 	input.FileID = "download-folder"
-	encoded, err := encodeTaskPayload(input)
+	encoded, err := tasks.EncodePayload(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +107,7 @@ func TestMovieStatesScopePendingWorkToTheMountedAccountAndRoot(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			if err := saveSetting(ctx, offline.database, panDirectorySetting, panLibraryDirectory{
-				AccountID: scenario.accountID, PanLibraryDirectory: PanLibraryDirectory{ID: scenario.directoryID},
+				AccountID: scenario.accountID, LibraryDirectory: domain.LibraryDirectory{ID: scenario.directoryID},
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -136,7 +138,7 @@ func TestOfflinePageFileTrackingRollsBackWithTheIndex(t *testing.T) {
 	if offline.database.File.Query().CountX(ctx) != 0 {
 		t.Fatal("file index escaped rollback")
 	}
-	saved, err := decodeTaskPayload[offlinePayload](offline.database.Task.GetX(ctx, record.ID).Payload)
+	saved, err := tasks.DecodePayload[offlinePayload](offline.database.Task.GetX(ctx, record.ID).Payload)
 	if err != nil || len(saved.FileIDs) != 0 {
 		t.Fatalf("download file tracking escaped rollback: %+v err=%v", saved, err)
 	}

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/ppxb/miyabi/internal/domain"
 	"io"
 	"io/fs"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
-func playFixture(t *testing.T) (*PlayService, LibrarySource) {
+func playFixture(t *testing.T) (*PlayService, domain.LibrarySource) {
 	t.Helper()
 	library, queued, payload := libraryFixture(t)
 	if err := library.indexScanPage(t.Context(), queued.ID, "fixture", "/Movies", []scanVideo{
@@ -30,7 +31,7 @@ func playFixture(t *testing.T) (*PlayService, LibrarySource) {
 	library.drive = &PanService{
 		client:    pan.New(),
 		tokens:    pan.Tokens{AccessToken: "fixture-token", ExpiresAt: time.Now().Add(time.Hour)},
-		directory: panLibraryDirectory{AccountID: payload.Source.AccountID, PanLibraryDirectory: payload.Source.Directory},
+		directory: panLibraryDirectory{AccountID: payload.Source.AccountID, LibraryDirectory: payload.Source.Directory},
 	}
 	t.Cleanup(library.drive.Close)
 	service := NewPlayService(library)
@@ -51,7 +52,7 @@ func TestPlayFilesUsesOnlyCurrentLibrarySource(t *testing.T) {
 		t.Fatalf("playable files = %#v, error = %v", files, err)
 	}
 	if err := saveSetting(t.Context(), db, panDirectorySetting, panLibraryDirectory{
-		AccountID: source.AccountID, PanLibraryDirectory: PanLibraryDirectory{ID: "empty"},
+		AccountID: source.AccountID, LibraryDirectory: domain.LibraryDirectory{ID: "empty"},
 	}); err != nil {
 		t.Fatal(err)
 	}

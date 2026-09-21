@@ -24,11 +24,11 @@ import (
 )
 
 type metadataPayload struct {
-	Source     LibrarySource `json:"source"`
-	ScanTaskID int           `json:"scan_task_id"`
-	MovieID    int           `json:"movie_id"`
-	Code       string        `json:"code"`
-	JavDBID    string        `json:"javdb_id,omitempty"`
+	Source     domain.LibrarySource `json:"source"`
+	ScanTaskID int                  `json:"scan_task_id"`
+	MovieID    int                  `json:"movie_id"`
+	Code       string               `json:"code"`
+	JavDBID    string               `json:"javdb_id,omitempty"`
 }
 
 type artworkOrigin struct {
@@ -77,15 +77,15 @@ func (service *ScrapeService) begin(ctx context.Context, input metadataPayload) 
 	return state.authorizationVersion, nil
 }
 
-func (service *ScrapeService) Scrape(ctx context.Context, job TaskJob) error {
-	input, err := decodeTaskPayload[metadataPayload](job.Payload)
+func (service *ScrapeService) Scrape(ctx context.Context, job tasks.Job) error {
+	input, err := tasks.DecodePayload[metadataPayload](job.Payload)
 	if err != nil {
 		return err
 	}
 	input.Code = codeid.Normalize(input.Code)
 	// A committed cover job means the metadata transaction already succeeded.
-	queued, err := service.library.database.Task.Query().Where(task.TypeEQ("cover"), func(s *sql.Selector) {
-		s.Where(sqljson.ValueEQ(task.FieldPayload, job.ID, sqljson.Path("scrape_task_id")))
+	queued, err := service.library.database.Task.Query().Where(task.TypeEQ(tasks.KindCover.String()), func(s *sql.Selector) {
+		s.Where(sqljson.ValueEQ(task.FieldPayload, job.ID, sqljson.Path(tasks.PathScrapeTaskID)))
 	}).Exist(ctx)
 	if err != nil {
 		return fmt.Errorf("find queued artwork: %w", err)
@@ -149,7 +149,7 @@ func (service *ScrapeService) Scrape(ctx context.Context, job TaskJob) error {
 	}
 	cover.Code = codeid.Normalize(cover.Document.Code)
 	cover.Document.Code = cover.Code
-	encoded, err := encodeTaskPayload(cover)
+	encoded, err := tasks.EncodePayload(cover)
 	if err != nil {
 		return err
 	}
@@ -164,7 +164,7 @@ func (service *ScrapeService) Scrape(ctx context.Context, job TaskJob) error {
 		if err := saveMovieMetadata(ctx, tx, input.MovieID, cover.Document); err != nil {
 			return err
 		}
-		return tx.Task.Create().SetType("cover").SetPayload(encoded).Exec(ctx)
+		return tx.Task.Create().SetType(tasks.KindCover.String()).SetPayload(encoded).Exec(ctx)
 	}); err != nil {
 		return fmt.Errorf("save movie metadata and queue artwork: %w", err)
 	}
@@ -436,22 +436,23 @@ func saveMovieMetadata(ctx context.Context, tx *ent.Tx, id int, doc nfo.Movie) e
 	return update.Exec(ctx)
 }
 
-// Finished updates movie.scrape_status to failed inside the completion transaction
-// if a scrape or cover job failed.
-func (service *ScrapeService) Finished(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) error {
+// Finished marks the movie scrape as failed inside the completion transaction
+// when a scrape or cover job fails. Failures change the library view; successes
+// only advance the download workflow projection.
+func (service *ScrapeService) Finished(ctx context.Context, tx *ent.Tx, job tasks.Job, result error) (tasks.Change, error) {
 	if result == nil {
-		return nil
-	}
-	if job.Type != tasks.KindScrape && job.Type != tasks.KindCover {
-		return nil
+		return tasks.ChangeOffline, nil
 	}
 	input, err := tasks.DecodePayload[metadataPayload](job.Payload)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return tx.Movie.Update().Where(
+	if err := tx.Movie.Update().Where(
 		movie.IDEQ(input.MovieID),
 		movie.ScrapeStatusNEQ(movie.ScrapeStatusDone),
 		movie.HasFilesWith(libraryFiles(input.Source)),
-	).SetScrapeStatus(movie.ScrapeStatusFailed).Exec(ctx)
+	).SetScrapeStatus(movie.ScrapeStatusFailed).Exec(ctx); err != nil {
+		return 0, err
+	}
+	return tasks.ChangeLibrary | tasks.ChangeHistory, nil
 }

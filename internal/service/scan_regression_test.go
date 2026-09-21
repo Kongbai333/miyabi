@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/ent"
@@ -23,7 +24,7 @@ func TestScanProgressKeepsRestartContextAndScanKind(t *testing.T) {
 				t.Fatal(err)
 			}
 			record := library.database.Task.GetX(t.Context(), queued.ID)
-			restored, err := decodeTaskPayload[scanPayload](record.Payload)
+			restored, err := tasks.DecodePayload[scanPayload](record.Payload)
 			if err != nil || restored != payload {
 				t.Fatalf("restart context changed: %+v err=%v", restored, err)
 			}
@@ -114,7 +115,7 @@ func TestCompactScanKeepsSharedDirectoryAndArtworkMatching(t *testing.T) {
 			if scenario.shared {
 				f.entries["10"] = append(f.entries["10"], pan.File{ID: "unmatched", Name: "recording.mp4", Size: 1 << 30})
 			}
-			encoded, err := encodeTaskPayload(f.input)
+			encoded, err := tasks.EncodePayload(f.input)
 			if err != nil {
 				t.Fatal(err)
 			}

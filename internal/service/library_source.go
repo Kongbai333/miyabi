@@ -21,12 +21,12 @@ func fileInfoPath(info pan.FileInfo) string {
 	return path.Join(names...)
 }
 
-func withinSource(info pan.FileInfo, source LibrarySource) bool {
+func withinSource(info pan.FileInfo, source domain.LibrarySource) bool {
 	return info.ID == source.Directory.ID || source.Directory.ID == "0" ||
 		slices.ContainsFunc(info.Path, func(dir pan.Directory) bool { return dir.ID == source.Directory.ID })
 }
 
-func (service *LibraryService) sourceInfo(ctx context.Context, source LibrarySource, version uint64, id string) (pan.FileInfo, error) {
+func (service *LibraryService) sourceInfo(ctx context.Context, source domain.LibrarySource, version uint64, id string) (pan.FileInfo, error) {
 	state, err := service.drive.sourceState(source, version)
 	if err != nil {
 		return pan.FileInfo{}, err
@@ -46,7 +46,7 @@ func (service *LibraryService) sourceInfo(ctx context.Context, source LibrarySou
 	return info, nil
 }
 
-func (service *LibraryService) readSidecar(ctx context.Context, source LibrarySource, version uint64, entry pan.File, limit int64) ([]byte, error) {
+func (service *LibraryService) readSidecar(ctx context.Context, source domain.LibrarySource, version uint64, entry pan.File, limit int64) ([]byte, error) {
 	state, err := service.drive.sourceState(source, version)
 	if err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func (service *LibraryService) readSidecar(ctx context.Context, source LibrarySo
 	return body, nil
 }
 
-func (service *LibraryService) directoryEntries(ctx context.Context, source LibrarySource, version uint64, id string) ([]pan.File, error) {
+func (service *LibraryService) directoryEntries(ctx context.Context, source domain.LibrarySource, version uint64, id string) ([]pan.File, error) {
 	var files []pan.File
 	err := walkFilePages(ctx, func(offset int) (pan.FilePage, error) {
 		return service.scanPage(ctx, source, version, id, offset)

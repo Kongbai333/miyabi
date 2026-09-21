@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"slices"
 	"strings"
 
@@ -82,7 +84,7 @@ func (snapshot metadataSnapshot) matches(record *ent.Movie, directories scanObse
 	return true
 }
 
-func completedMetadataSnapshots(ctx context.Context, database *ent.Client, source LibrarySource, movieIDs []int) (map[int]metadataSnapshot, error) {
+func completedMetadataSnapshots(ctx context.Context, database *ent.Client, source domain.LibrarySource, movieIDs []int) (map[int]metadataSnapshot, error) {
 	result := make(map[int]metadataSnapshot)
 	for start := 0; start < len(movieIDs); start += 500 {
 		ids := make([]any, 0, 500)
@@ -91,19 +93,19 @@ func completedMetadataSnapshots(ctx context.Context, database *ent.Client, sourc
 		}
 		table := sql.Table(task.Table)
 		latest := sql.Select(sql.Max(table.C(task.FieldID))).From(table).Where(sql.And(
-			sql.EQ(table.C(task.FieldType), "cover"), sql.EQ(table.C(task.FieldStatus), task.StatusDone),
-			sqljson.ValueIn(table.C(task.FieldPayload), ids, sqljson.Path("movie_id")),
-			sqljson.ValueEQ(table.C(task.FieldPayload), source.AccountID, sqljson.Path("source", "account_id")),
-			sqljson.ValueEQ(table.C(task.FieldPayload), source.Directory.ID, sqljson.Path("source", "directory", "id")),
-		)).GroupBy("json_extract(" + table.C(task.FieldPayload) + ", '$.movie_id')")
+			sql.EQ(table.C(task.FieldType), tasks.KindCover.String()), sql.EQ(table.C(task.FieldStatus), task.StatusDone),
+			sqljson.ValueIn(table.C(task.FieldPayload), ids, sqljson.Path(tasks.PathMovieID)),
+			sqljson.ValueEQ(table.C(task.FieldPayload), source.AccountID, sqljson.Path(tasks.PathSource, tasks.PathAccountID)),
+			sqljson.ValueEQ(table.C(task.FieldPayload), source.Directory.ID, sqljson.Path(tasks.PathSource, "directory", "id")),
+		)).GroupBy(tasks.JSONExtract(table.C(task.FieldPayload), tasks.PathMovieID))
 		var records []struct {
 			MovieID  int     `json:"movie_id"`
 			Snapshot *string `json:"snapshot"`
 		}
 		err := database.Task.Query().Where(func(s *sql.Selector) {
 			s.Where(sql.In(s.C(task.FieldID), latest))
-			s.Select(sql.As("json_extract("+s.C(task.FieldPayload)+", '$.movie_id')", "movie_id"),
-				sql.As("json_extract("+s.C(task.FieldPayload)+", '$.snapshot')", "snapshot"))
+			s.Select(sql.As(tasks.JSONExtract(s.C(task.FieldPayload), tasks.PathMovieID), "movie_id"),
+				sql.As(tasks.JSONExtract(s.C(task.FieldPayload), tasks.PathSnapshot), "snapshot"))
 		}).Select(task.FieldID).Scan(ctx, &records)
 		if err != nil {
 			return nil, fmt.Errorf("load completed metadata snapshots: %w", err)

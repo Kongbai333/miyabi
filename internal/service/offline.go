@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"slices"
 	"strings"
 	"time"
@@ -41,8 +42,8 @@ type OfflineSubmission struct {
 }
 
 type OfflineActivity struct {
-	Source *LibrarySource      `json:"source,omitempty"`
-	Tasks  []OfflineSubmission `json:"tasks"`
+	Source *domain.LibrarySource `json:"source,omitempty"`
+	Tasks  []OfflineSubmission   `json:"tasks"`
 }
 
 type offlinePayload struct {
@@ -62,12 +63,12 @@ type OfflineService struct {
 	database   *ent.Client
 	discover   *DiscoverService
 	drive      *PanService
-	tasks      *TaskService
+	tasks      *tasks.Service
 	operations offlineOperations
 	syncing    contextLock
 }
 
-func NewOfflineService(database *ent.Client, discover *DiscoverService, drive *PanService, tasks *TaskService) *OfflineService {
+func NewOfflineService(database *ent.Client, discover *DiscoverService, drive *PanService, tasks *tasks.Service) *OfflineService {
 	return &OfflineService{database: database, discover: discover, drive: drive, tasks: tasks}
 }
 
@@ -99,15 +100,15 @@ func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (O
 	if _, err := service.drive.sourceState(source, state.authorizationVersion); err != nil {
 		return OfflineSubmission{}, err
 	}
-	existing, err := service.database.Task.Query().Where(task.TypeEQ("offline"),
+	existing, err := service.database.Task.Query().Where(task.TypeEQ(tasks.KindOffline.String()),
 		task.StatusIn(task.StatusQueued, task.StatusRunning), func(s *sql.Selector) {
 			s.Where(sql.And(
-				sqljson.ValueEQ(task.FieldPayload, source.AccountID, sqljson.Path("account_id")),
-				sqljson.ValueEQ(task.FieldPayload, hash, sqljson.Path("hash")),
+				sqljson.ValueEQ(task.FieldPayload, source.AccountID, sqljson.Path(tasks.PathAccountID)),
+				sqljson.ValueEQ(task.FieldPayload, hash, sqljson.Path(tasks.PathHash)),
 			))
 		}).First(ctx)
 	if err == nil {
-		input, err := decodeTaskPayload[offlinePayload](existing.Payload)
+		input, err := tasks.DecodePayload[offlinePayload](existing.Payload)
 		if err != nil {
 			return OfflineSubmission{}, err
 		}
@@ -119,11 +120,11 @@ func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (O
 	if !ent.IsNotFound(err) {
 		return OfflineSubmission{}, fmt.Errorf("find active offline task: %w", err)
 	}
-	previous, err := service.database.Task.Query().Where(task.TypeEQ("offline"), task.StatusEQ(task.StatusDone), func(s *sql.Selector) {
+	previous, err := service.database.Task.Query().Where(task.TypeEQ(tasks.KindOffline.String()), task.StatusEQ(task.StatusDone), func(s *sql.Selector) {
 		s.Where(sql.And(
-			sqljson.ValueEQ(task.FieldPayload, source.AccountID, sqljson.Path("account_id")),
-			sqljson.ValueEQ(task.FieldPayload, directory.ID, sqljson.Path("directory_id")),
-			sqljson.ValueEQ(task.FieldPayload, hash, sqljson.Path("hash")),
+			sqljson.ValueEQ(task.FieldPayload, source.AccountID, sqljson.Path(tasks.PathAccountID)),
+			sqljson.ValueEQ(task.FieldPayload, directory.ID, sqljson.Path(tasks.PathDirectoryID)),
+			sqljson.ValueEQ(task.FieldPayload, hash, sqljson.Path(tasks.PathHash)),
 		))
 	}).Order(ent.Desc(task.FieldID)).First(ctx)
 	if err == nil {
@@ -153,7 +154,7 @@ func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (O
 	}
 	input := offlinePayload{Code: code, JavDBID: movie.ID, Hash: hash, InfoHash: remote.Hash,
 		AccountID: source.AccountID, DirectoryID: directory.ID}
-	encoded, err := encodeTaskPayload(input)
+	encoded, err := tasks.EncodePayload(input)
 	if err != nil {
 		return OfflineSubmission{}, err
 	}
@@ -163,7 +164,7 @@ func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (O
 	}
 	if err := ent.WithTx(submitContext, service.database, func(tx *ent.Tx) error {
 		var err error
-		created, err = tx.Task.Create().SetType("offline").SetStatus(task.StatusRunning).SetPayload(encoded).Save(submitContext)
+		created, err = tx.Task.Create().SetType(tasks.KindOffline.String()).SetStatus(task.StatusRunning).SetPayload(encoded).Save(submitContext)
 		if err != nil {
 			return err
 		}
@@ -187,7 +188,7 @@ func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (O
 // submit handles duplicate history by inspecting its real output. Only a
 // terminal task with confirmed absent video content is removed, never files.
 // The caller holds the account/hash lock, never the shared Pan state lock.
-func (service *OfflineService) submit(ctx context.Context, state panSnapshot, source LibrarySource, hash string) (pan.OfflineTask, error) {
+func (service *OfflineService) submit(ctx context.Context, state panSnapshot, source domain.LibrarySource, hash string) (pan.OfflineTask, error) {
 	add := func() (string, error) {
 		if _, err := service.drive.sourceState(source, state.authorizationVersion); err != nil {
 			return "", err
@@ -265,7 +266,7 @@ func (service *OfflineService) findRemoteTask(ctx context.Context, state panSnap
 	return pan.OfflineTask{}, domain.E(domain.KindBusy, "115 提示任务已存在，但任务列表中未找到它，请稍后重试", nil)
 }
 
-func (service *OfflineService) remoteHasVideo(ctx context.Context, state panSnapshot, source LibrarySource, id string) (bool, error) {
+func (service *OfflineService) remoteHasVideo(ctx context.Context, state panSnapshot, source domain.LibrarySource, id string) (bool, error) {
 	info, err := withPanSourceToken(ctx, service.drive, state, func(token string) (pan.FileInfo, error) {
 		return service.drive.client.Info(ctx, token, id)
 	})
@@ -313,7 +314,7 @@ func (service *OfflineService) remoteHasVideo(ctx context.Context, state panSnap
 	return found, nil
 }
 
-func (service *OfflineService) submission(ctx context.Context, record *ent.Task, source *LibrarySource) (OfflineSubmission, error) {
+func (service *OfflineService) submission(ctx context.Context, record *ent.Task, source *domain.LibrarySource) (OfflineSubmission, error) {
 	items, err := service.submissions(ctx, []*ent.Task{record}, source)
 	if err != nil {
 		return OfflineSubmission{}, err
@@ -323,12 +324,12 @@ func (service *OfflineService) submission(ctx context.Context, record *ent.Task,
 
 // Project task workflows and file presence in batches. The global observer and
 // movie buttons share this view without a database query for every download.
-func (service *OfflineService) submissions(ctx context.Context, records []*ent.Task, source *LibrarySource) ([]OfflineSubmission, error) {
+func (service *OfflineService) submissions(ctx context.Context, records []*ent.Task, source *domain.LibrarySource) ([]OfflineSubmission, error) {
 	inputs := make([]offlinePayload, len(records))
 	var scanIDs []int
 	var fileIDs []string
 	for index, record := range records {
-		input, err := decodeTaskPayload[offlinePayload](record.Payload)
+		input, err := tasks.DecodePayload[offlinePayload](record.Payload)
 		if err != nil {
 			return nil, err
 		}
@@ -345,7 +346,7 @@ func (service *OfflineService) submissions(ctx context.Context, records []*ent.T
 		}
 		fileIDs = append(fileIDs, input.FileIDs...)
 	}
-	scans := make(map[int]TaskInfo)
+	scans := make(map[int]tasks.TaskInfo)
 	for start := 0; start < len(scanIDs); start += 500 {
 		parents, err := service.database.Task.Query().Where(task.IDIn(scanIDs[start:min(start+500, len(scanIDs))]...)).All(ctx)
 		if err != nil {
@@ -441,10 +442,10 @@ func (service *OfflineService) Activity(ctx context.Context) (OfflineActivity, e
 	if source == nil {
 		return result, nil
 	}
-	records, err := latestOfflineTasks(ctx, service.database.Task.Query().Where(task.TypeEQ("offline"), func(s *sql.Selector) {
+	records, err := latestOfflineTasks(ctx, service.database.Task.Query().Where(task.TypeEQ(tasks.KindOffline.String()), func(s *sql.Selector) {
 		s.Where(sql.And(
-			sqljson.ValueEQ(task.FieldPayload, source.AccountID, sqljson.Path("account_id")),
-			sqljson.ValueEQ(task.FieldPayload, source.Directory.ID, sqljson.Path("directory_id")),
+			sqljson.ValueEQ(task.FieldPayload, source.AccountID, sqljson.Path(tasks.PathAccountID)),
+			sqljson.ValueEQ(task.FieldPayload, source.Directory.ID, sqljson.Path(tasks.PathDirectoryID)),
 		))
 	}))
 	if err != nil {
@@ -457,10 +458,10 @@ func (service *OfflineService) Activity(ctx context.Context) (OfflineActivity, e
 // Tasks projects history through the current file index and workflow. A
 // finished remote task alone never means the resource still exists.
 func (service *OfflineService) Tasks(ctx context.Context, movieID, accountID string) ([]OfflineSubmission, error) {
-	records, err := latestOfflineTasks(ctx, service.database.Task.Query().Where(task.TypeEQ("offline"), func(s *sql.Selector) {
+	records, err := latestOfflineTasks(ctx, service.database.Task.Query().Where(task.TypeEQ(tasks.KindOffline.String()), func(s *sql.Selector) {
 		s.Where(sql.And(
-			sqljson.ValueEQ(task.FieldPayload, movieID, sqljson.Path("javdb_id")),
-			sqljson.ValueEQ(task.FieldPayload, accountID, sqljson.Path("account_id")),
+			sqljson.ValueEQ(task.FieldPayload, movieID, sqljson.Path(tasks.PathJavDBID)),
+			sqljson.ValueEQ(task.FieldPayload, accountID, sqljson.Path(tasks.PathAccountID)),
 		))
 	}))
 	if err != nil {
@@ -481,7 +482,7 @@ func latestOfflineTasks(ctx context.Context, query *ent.TaskQuery) ([]*ent.Task,
 		// A malformed hash must remain visible to validation even if its JSON
 		// representation matches a newer string hash.
 		latest := s.Clone().Select(sql.Max(s.C(task.FieldID))).
-			GroupBy("json_type("+payload+", '$.hash')", "json_extract("+payload+", '$.hash')")
+			GroupBy("json_type("+payload+", '$."+tasks.PathHash+"')", tasks.JSONExtract(payload, tasks.PathHash))
 		s.Where(sql.In(s.C(task.FieldID), latest))
 	}).Order(ent.Desc(task.FieldID)).All(ctx)
 }
@@ -495,16 +496,16 @@ func (service *OfflineService) Sync(ctx context.Context) error {
 	if state.tokens.AccessToken == "" {
 		return nil
 	}
-	records, err := service.database.Task.Query().Where(task.TypeEQ("offline"), task.Or(
+	records, err := service.database.Task.Query().Where(task.TypeEQ(tasks.KindOffline.String()), task.Or(
 		task.StatusIn(task.StatusQueued, task.StatusRunning),
 		task.And(task.StatusEQ(task.StatusDone), func(s *sql.Selector) {
 			s.Where(sql.And(
-				sqljson.ValueEQ(task.FieldPayload, state.directory.AccountID, sqljson.Path("account_id")),
-				sqljson.ValueEQ(task.FieldPayload, state.directory.ID, sqljson.Path("directory_id")),
-				sql.Not(sqljson.HasKey(task.FieldPayload, sqljson.Path("scan_task_id"))),
+				sqljson.ValueEQ(task.FieldPayload, state.directory.AccountID, sqljson.Path(tasks.PathAccountID)),
+				sqljson.ValueEQ(task.FieldPayload, state.directory.ID, sqljson.Path(tasks.PathDirectoryID)),
+				sql.Not(sqljson.HasKey(task.FieldPayload, sqljson.Path(tasks.PathScanTaskID))),
 				sql.Or(
-					sqljson.HasKey(task.FieldPayload, sqljson.Path("file_id")),
-					sqljson.ValueEQ(task.FieldPayload, true, sqljson.Path("awaiting_location")),
+					sqljson.HasKey(task.FieldPayload, sqljson.Path(tasks.PathFileID)),
+					sqljson.ValueEQ(task.FieldPayload, true, sqljson.Path(tasks.PathAwaitingLocation)),
 				),
 			))
 		}),
@@ -523,7 +524,7 @@ func (service *OfflineService) Sync(ctx context.Context) error {
 	seen := make(map[string]bool)
 	var syncErrors []error
 	for _, record := range records {
-		input, err := decodeTaskPayload[offlinePayload](record.Payload)
+		input, err := tasks.DecodePayload[offlinePayload](record.Payload)
 		if err != nil {
 			syncErrors = append(syncErrors, fmt.Errorf("read offline task %d: %w", record.ID, err))
 			continue
@@ -589,7 +590,7 @@ func (service *OfflineService) Sync(ctx context.Context) error {
 }
 
 func (service *OfflineService) updateTask(ctx context.Context, record *ent.Task, remote pan.OfflineTask, state panSnapshot) error {
-	input, err := decodeTaskPayload[offlinePayload](record.Payload)
+	input, err := tasks.DecodePayload[offlinePayload](record.Payload)
 	if err != nil {
 		return err
 	}
@@ -616,7 +617,7 @@ func (service *OfflineService) updateTask(ctx context.Context, record *ent.Task,
 		if current.Status == task.StatusFailed || current.Status == task.StatusDone && remote.Status != 2 {
 			return nil
 		}
-		currentInput, err := decodeTaskPayload[offlinePayload](current.Payload)
+		currentInput, err := tasks.DecodePayload[offlinePayload](current.Payload)
 		if err != nil {
 			return err
 		}
@@ -661,7 +662,7 @@ func (service *OfflineService) updateTask(ctx context.Context, record *ent.Task,
 }
 
 func (service *OfflineService) markMissing(ctx context.Context, record *ent.Task, state panSnapshot) error {
-	input, err := decodeTaskPayload[offlinePayload](record.Payload)
+	input, err := tasks.DecodePayload[offlinePayload](record.Payload)
 	if err != nil {
 		return err
 	}
@@ -688,7 +689,7 @@ func (service *OfflineService) markMissing(ctx context.Context, record *ent.Task
 		case task.StatusQueued, task.StatusRunning:
 			update.SetStatus(task.StatusFailed).SetError("115 中未找到该任务，请在 115 客户端确认下载结果")
 		case task.StatusDone:
-			pending, err := decodeTaskPayload[offlinePayload](current.Payload)
+			pending, err := tasks.DecodePayload[offlinePayload](current.Payload)
 			if err != nil {
 				return err
 			}
@@ -696,7 +697,7 @@ func (service *OfflineService) markMissing(ctx context.Context, record *ent.Task
 				return nil
 			}
 			pending.AwaitingLocation = false
-			encoded, err := encodeTaskPayload(pending)
+			encoded, err := tasks.EncodePayload(pending)
 			if err != nil {
 				return err
 			}
@@ -730,21 +731,21 @@ func (service *OfflineService) completeTask(ctx context.Context, tx *ent.Tx, rec
 	if fileID != "" && input.ScanTaskID == 0 && current.credentialVersion == state.credentialVersion &&
 		current.matchesSource(state.source(), state.authorizationVersion) &&
 		directory.ID == input.DirectoryID && directory.AccountID == input.AccountID {
-		encoded, err := encodeTaskPayload(scanPayload{
-			Source:   LibrarySource{AccountID: input.AccountID, Directory: directory.PanLibraryDirectory},
-			Scan:     ScanProgress{Stage: "queued", CurrentPath: directory.Path},
+		encoded, err := tasks.EncodePayload(scanPayload{
+			Source:   domain.LibrarySource{AccountID: input.AccountID, Directory: directory.LibraryDirectory},
+			Scan:     domain.ScanProgress{Stage: "queued", CurrentPath: directory.Path},
 			TargetID: fileID, OfflineTaskID: record.ID, Code: input.Code, JavDBID: input.JavDBID,
 		})
 		if err != nil {
 			return err
 		}
-		scan, err := tx.Task.Create().SetType("scan").SetPayload(encoded).Save(ctx)
+		scan, err := tx.Task.Create().SetType(tasks.KindScan.String()).SetPayload(encoded).Save(ctx)
 		if err != nil {
 			return err
 		}
 		input.ScanTaskID = scan.ID
 	}
-	encoded, err := encodeTaskPayload(input)
+	encoded, err := tasks.EncodePayload(input)
 	if err != nil {
 		return err
 	}

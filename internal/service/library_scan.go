@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/ppxb/miyabi/internal/tasks"
 	"path"
 	"slices"
 	"strings"
@@ -18,17 +19,15 @@ import (
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
-type ScanProgress = domain.ScanProgress
-
 type scanPayload struct {
-	Source        LibrarySource `json:"source"`
-	Scan          ScanProgress  `json:"scan"`
-	TargetID      string        `json:"target_id,omitempty"`
-	TargetPath    string        `json:"target_path,omitempty"`
-	TargetFile    bool          `json:"target_file,omitempty"`
-	OfflineTaskID int           `json:"offline_task_id,omitempty"`
-	Code          string        `json:"code,omitempty"`
-	JavDBID       string        `json:"javdb_id,omitempty"`
+	Source        domain.LibrarySource `json:"source"`
+	Scan          domain.ScanProgress  `json:"scan"`
+	TargetID      string               `json:"target_id,omitempty"`
+	TargetPath    string               `json:"target_path,omitempty"`
+	TargetFile    bool                 `json:"target_file,omitempty"`
+	OfflineTaskID int                  `json:"offline_task_id,omitempty"`
+	Code          string               `json:"code,omitempty"`
+	JavDBID       string               `json:"javdb_id,omitempty"`
 }
 
 type scanDirectory struct {
@@ -66,23 +65,23 @@ func (service *LibraryService) identifyScanVideos(payload scanPayload, videos []
 	}
 }
 
-func (service *LibraryService) StartScan(ctx context.Context) (TaskInfo, error) {
+func (service *LibraryService) StartScan(ctx context.Context) (tasks.TaskInfo, error) {
 	state, err := service.drive.verifiedSource(ctx)
 	if err != nil {
-		return TaskInfo{}, err
+		return tasks.TaskInfo{}, err
 	}
 	if err := service.drive.commit.Lock(ctx); err != nil {
-		return TaskInfo{}, err
+		return tasks.TaskInfo{}, err
 	}
 	defer service.drive.commit.Unlock()
 	if err := service.checkScanSource(state.source(), state.authorizationVersion); err != nil {
-		return TaskInfo{}, err
+		return tasks.TaskInfo{}, err
 	}
 	return service.tasks.EnqueueScan(ctx, state.source())
 }
 
-func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
-	payload, err := decodeTaskPayload[scanPayload](job.Payload)
+func (service *LibraryService) Scan(ctx context.Context, job tasks.Job) error {
+	payload, err := tasks.DecodePayload[scanPayload](job.Payload)
 	if err != nil {
 		return err
 	}
@@ -106,7 +105,7 @@ func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
 	// interrupted attempt must not make unvisited files look present on retry.
 	scanID := uuid.NewString()
 	payload.Source = source
-	payload.Scan = ScanProgress{
+	payload.Scan = domain.ScanProgress{
 		Stage: "scanning", CurrentPath: source.Directory.Path, DirectoriesDiscovered: 1,
 	}
 	start := scanDirectory{id: source.Directory.ID, path: source.Directory.Path}
@@ -263,12 +262,12 @@ func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
 	return reconcile()
 }
 
-func (service *LibraryService) checkScanSource(source LibrarySource, version uint64) error {
+func (service *LibraryService) checkScanSource(source domain.LibrarySource, version uint64) error {
 	_, err := service.drive.sourceState(source, version)
 	return err
 }
 
-func (service *LibraryService) scanPage(ctx context.Context, source LibrarySource, version uint64, directoryID string, offset int) (pan.FilePage, error) {
+func (service *LibraryService) scanPage(ctx context.Context, source domain.LibrarySource, version uint64, directoryID string, offset int) (pan.FilePage, error) {
 	state, err := service.drive.sourceState(source, version)
 	if err != nil {
 		return pan.FilePage{}, err
@@ -439,7 +438,7 @@ func (service *LibraryService) processScanPage(ctx context.Context, taskID int, 
 				if err != nil {
 					return err
 				}
-				input, err := decodeTaskPayload[offlinePayload](record.Payload)
+				input, err := tasks.DecodePayload[offlinePayload](record.Payload)
 				if err != nil {
 					return err
 				}
@@ -454,7 +453,7 @@ func (service *LibraryService) processScanPage(ctx context.Context, taskID int, 
 					}
 				}
 				if offlineChanged {
-					record.Payload, err = setTaskPayloadField(record.Payload, "file_ids", input.FileIDs)
+					record.Payload, err = tasks.SetPayloadField(record.Payload, "file_ids", input.FileIDs)
 					if err != nil {
 						return err
 					}
@@ -544,7 +543,7 @@ func (service *LibraryService) reconcileScan(ctx context.Context, taskID int, sc
 			for _, entry := range files {
 				ids = append(ids, entry.FileID)
 			}
-			record.Payload, err = setTaskPayloadField(record.Payload, "file_ids", ids)
+			record.Payload, err = tasks.SetPayloadField(record.Payload, "file_ids", ids)
 			if err != nil {
 				return err
 			}
@@ -579,11 +578,11 @@ func (service *LibraryService) reconcileScan(ctx context.Context, taskID int, sc
 			}
 			input := metadataPayload{Source: payload.Source, ScanTaskID: taskID, MovieID: record.ID,
 				Code: record.Code, JavDBID: valueOrZero(record.JavdbID)}
-			encoded, err := encodeTaskPayload(input)
+			encoded, err := tasks.EncodePayload(input)
 			if err != nil {
 				return err
 			}
-			if err := tx.Task.Create().SetType("scrape").SetPayload(encoded).Exec(ctx); err != nil {
+			if err := tx.Task.Create().SetType(tasks.KindScrape.String()).SetPayload(encoded).Exec(ctx); err != nil {
 				return fmt.Errorf("enqueue movie metadata: %w", err)
 			}
 		}
@@ -624,13 +623,19 @@ func (service *LibraryService) reportScan(ctx context.Context, taskID int, paylo
 	return nil
 }
 
-func saveScanProgress(ctx context.Context, tasks *ent.TaskClient, taskID int, payload scanPayload) error {
-	encoded, err := encodeTaskPayload(payload)
+func saveScanProgress(ctx context.Context, client *ent.TaskClient, taskID int, payload scanPayload) error {
+	encoded, err := tasks.EncodePayload(payload)
 	if err != nil {
 		return err
 	}
-	if err := tasks.UpdateOneID(taskID).SetPayload(encoded).Exec(ctx); err != nil {
+	if err := client.UpdateOneID(taskID).SetPayload(encoded).Exec(ctx); err != nil {
 		return fmt.Errorf("save scan progress: %w", err)
 	}
 	return nil
+}
+
+// Finished reports that a completed scan changed the download workflow
+// projection, which folds scan progress into offline task views.
+func (service *LibraryService) Finished(context.Context, *ent.Tx, tasks.Job, error) (tasks.Change, error) {
+	return tasks.ChangeOffline, nil
 }

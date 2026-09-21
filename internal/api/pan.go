@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"github.com/ppxb/miyabi/internal/domain"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +16,7 @@ type PanManager interface {
 	LoginStatus(context.Context, string) (service.PanLoginStatus, error)
 	Disconnect(context.Context) (service.PanAccountStatus, error)
 	Files(context.Context, string, int) (pan.FilePage, error)
-	SelectDirectory(context.Context, string) (service.PanLibraryDirectory, error)
+	SelectDirectory(context.Context, string) (domain.LibraryDirectory, error)
 	ClearDirectory(context.Context) error
 }
 
