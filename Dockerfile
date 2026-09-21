@@ -45,7 +45,6 @@ WORKDIR /app
 COPY --from=server-builder --chown=miyabi:miyabi /out/miyabi /app/miyabi
 COPY LICENSE /app/LICENSE
 
-USER miyabi
 ENV MIYABI_LISTEN=":8080" MIYABI_DATA_DIR="/app/data" MIYABI_LOG_LEVEL="info"
 
 VOLUME ["/app/data"]
