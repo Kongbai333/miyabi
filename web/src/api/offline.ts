@@ -108,3 +108,32 @@ export function useAddOffline(movieID: string) {
     }
   })
 }
+
+// A magnet the library never indexed. The download lands in the mounted
+// directory and the next scan identifies the file, so no movie state changes
+// here and the hash is not tied to a catalogue entry.
+export function useAddMagnet() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (magnet: string) => apiPost<OfflineSubmission>('/api/offline/magnets', { magnet }),
+    retry: false,
+    onSuccess: submission => {
+      notifyOfflineTask(submission)
+      void queryClient.invalidateQueries({ queryKey: offlineKeys.all })
+    },
+    onError: error => {
+      notifyTaskError(
+        'offline:magnet-error',
+        '加入 115 失败',
+        error instanceof ApiError
+          ? error.status === 401
+            ? '115 授权已失效，请到设置页重新登录。'
+            : error.message
+          : '请检查后端服务和网络后重试。'
+      )
+      if (error instanceof ApiError && (error.status === 401 || error.status === 400)) {
+        void queryClient.invalidateQueries({ queryKey: panKeys.account })
+      }
+    }
+  })
+}

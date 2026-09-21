@@ -71,6 +71,8 @@ func NewOfflineService(database *ent.Client, discover *DiscoverService, drive *P
 	return &OfflineService{database: database, discover: discover, drive: drive, tasks: tasks}
 }
 
+// Add submits a magnet that JavDB listed for a catalogue movie, so completion
+// can link the downloaded file back to it.
 func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (OfflineSubmission, error) {
 	hash = strings.ToLower(hash)
 	magnets, err := service.discover.Magnets(ctx, movieID)
@@ -84,7 +86,25 @@ func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (O
 	if err != nil {
 		return OfflineSubmission{}, err
 	}
-	code := codeid.Normalize(movie.Code)
+	return service.enqueue(ctx, hash, codeid.Normalize(movie.Code), movie.ID)
+}
+
+// AddMagnet submits a magnet the catalogue does not know yet, given either a
+// magnet URI or a bare info hash. The download lands in the mounted directory
+// and the next scan identifies it from the file names, so this task carries no
+// code and no JavDB id of its own.
+func (service *OfflineService) AddMagnet(ctx context.Context, input string) (OfflineSubmission, error) {
+	hash, err := infoHash(input)
+	if err != nil {
+		return OfflineSubmission{}, err
+	}
+	return service.enqueue(ctx, hash, "", "")
+}
+
+// enqueue records one offline download. A catalogue movie passes its code and
+// JavDB id so completion can link the file back to it; an unknown magnet passes
+// neither, and the next scan does the identifying.
+func (service *OfflineService) enqueue(ctx context.Context, hash, code, javdbID string) (OfflineSubmission, error) {
 	state, err := service.drive.verifiedSource(ctx)
 	if err != nil {
 		return OfflineSubmission{}, fmt.Errorf("get 115 account for offline download: %w", err)
@@ -151,7 +171,7 @@ func (service *OfflineService) Add(ctx context.Context, movieID, hash string) (O
 	if err != nil {
 		return OfflineSubmission{}, fmt.Errorf("submit 115 offline download: %w", err)
 	}
-	input := offlinePayload{Code: code, JavDBID: movie.ID, Hash: hash, InfoHash: remote.Hash,
+	input := offlinePayload{Code: code, JavDBID: javdbID, Hash: hash, InfoHash: remote.Hash,
 		AccountID: source.AccountID, DirectoryID: directory.ID}
 	encoded, err := encodeTaskPayload(input)
 	if err != nil {
@@ -726,8 +746,11 @@ func (service *OfflineService) completeTask(ctx context.Context, tx *ent.Tx, rec
 	current := service.drive.snapshot()
 	directory := current.directory
 	// Save remote completion immediately; a later sync will create the scan
-	// once 115 exposes the output location.
-	if fileID != "" && input.ScanTaskID == 0 && current.credentialVersion == state.credentialVersion &&
+	// once 115 exposes the output location. A magnet nobody catalogued has no
+	// movie to scan for: its file lands in the mounted directory and the next
+	// full scan identifies it from the names.
+	catalogued := input.Code != "" && input.JavDBID != ""
+	if catalogued && fileID != "" && input.ScanTaskID == 0 && current.credentialVersion == state.credentialVersion &&
 		current.matchesSource(state.source(), state.authorizationVersion) &&
 		directory.ID == input.DirectoryID && directory.AccountID == input.AccountID {
 		encoded, err := encodeTaskPayload(scanPayload{

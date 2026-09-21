@@ -17,6 +17,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { copyMagnet } from './clipboard'
 import { MagnetDetailDialog } from './detail-dialog'
+import { MagnetDownloadButton } from './download-button'
 
 const LIMITS = ['5', '7', '10', '20']
 
@@ -121,6 +122,7 @@ function MagnetRow({ item, onInspect }: { item: MagnetItem; onInspect: () => voi
         <Button type="button" variant="outline" size="sm" onClick={onInspect}>
           详情
         </Button>
+        <MagnetDownloadButton magnet={item.magnet_url} />
         <Button
           type="button"
           variant="ghost"

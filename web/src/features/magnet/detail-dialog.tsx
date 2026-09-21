@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatSize } from '@/lib/format'
 import { copyMagnet } from './clipboard'
 import { MagnetFileTree } from './file-tree'
+import { MagnetDownloadButton } from './download-button'
 
 // The preview and the file tree are two separate tool calls, so each half of
 // the dialog reports its own loading and failure.
@@ -93,10 +94,18 @@ export function MagnetDetailDialog({
             {files.data ? <MagnetFileTree files={files.data.files} /> : null}
           </section>
 
-          <Button type="button" variant="outline" size="sm" onClick={() => void copyMagnet(magnet)}>
-            <CopyIcon />
-            复制磁力链接
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <MagnetDownloadButton magnet={magnet} size="default" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void copyMagnet(magnet)}
+            >
+              <CopyIcon />
+              复制磁力链接
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

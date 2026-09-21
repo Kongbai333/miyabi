@@ -31,6 +31,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { copyMagnet } from './clipboard'
 import { MagnetDetailDialog } from './detail-dialog'
+import { MagnetDownloadButton } from './download-button'
 
 // The server can list, create, rename, delete, share and import collections,
 // but it has no tool for adding an item to one, so this panel browses what was
@@ -147,6 +148,7 @@ function CollectionRow({ item, onInspect }: { item: MagnetCollectionItem; onInsp
         <Button type="button" variant="outline" size="sm" onClick={onInspect}>
           详情
         </Button>
+        <MagnetDownloadButton magnet={item.magnet_url} />
         <Button
           type="button"
           variant="ghost"

@@ -87,6 +87,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	api.GET("/tasks", tasksHandler(deps.Tasks))
 	api.GET("/tasks/events", taskEventsHandler(deps.Tasks))
 	api.GET("/offline/tasks", offlineActivityHandler(deps.Offline))
+	api.POST("/offline/magnets", offlineAddMagnetHandler(deps.Offline))
 	monitorAPI := api.Group("/monitors", func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
 		c.Next()

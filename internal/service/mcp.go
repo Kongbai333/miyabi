@@ -438,18 +438,32 @@ func normalizeMCPSettings(settings MCPSettings) MCPSettings {
 	return settings
 }
 
-// magnetLink accepts a magnet URI or a bare info hash, the way the magnet
-// server's own web client does.
-func magnetLink(input string) (string, error) {
+// infoHash reads the info hash out of a magnet URI, or takes a bare hash, and
+// reports a lowercase hash.
+func infoHash(input string) (string, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
 		return "", domain.E(domain.KindInvalid, "缺少磁力链接", nil)
 	}
 	if match := magnetHash.FindStringSubmatch(trimmed); match != nil {
-		return "magnet:?xt=urn:btih:" + strings.ToUpper(match[1]), nil
+		return strings.ToLower(match[1]), nil
 	}
 	if len(trimmed) == 40 && isHex(trimmed) {
-		return "magnet:?xt=urn:btih:" + strings.ToUpper(trimmed), nil
+		return strings.ToLower(trimmed), nil
+	}
+	return "", domain.E(domain.KindInvalid, "磁力链接缺少有效的 info hash", nil)
+}
+
+// magnetLink normalizes either form into a magnet URI, the way the magnet
+// server's own web client does. Anything that is not a hash is passed through
+// so the server can judge it.
+func magnetLink(input string) (string, error) {
+	if hash, err := infoHash(input); err == nil {
+		return "magnet:?xt=urn:btih:" + strings.ToUpper(hash), nil
+	}
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return "", domain.E(domain.KindInvalid, "缺少磁力链接", nil)
 	}
 	return trimmed, nil
 }
