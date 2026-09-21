@@ -101,6 +101,8 @@ type DiscoverService struct {
 
 	routeMu sync.RWMutex
 	route   JavDBRouteStatus
+
+	viewedMu sync.Mutex
 }
 
 // NewDiscoverService creates the lazy JavDB client and persists a stable
@@ -375,6 +377,76 @@ func (service *DiscoverService) persistActiveRoute(ctx context.Context) error {
 		LatencyMS: route.LatencyMS,
 		Active:    true,
 		Manual:    route.Manual,
+	}
+	return nil
+}
+
+const viewedMoviesSetting = "browse.viewed_movies"
+const maxViewedMovies = 5000
+
+type viewedMoviesPayload struct {
+	IDs []string `json:"ids"`
+}
+
+func (service *DiscoverService) ViewedMovieIDs(ctx context.Context) ([]string, error) {
+	service.viewedMu.Lock()
+	defer service.viewedMu.Unlock()
+	payload, found, err := loadSetting[viewedMoviesPayload](ctx, service.database, viewedMoviesSetting)
+	if err != nil {
+		return nil, fmt.Errorf("load viewed movies: %w", err)
+	}
+	if !found || len(payload.IDs) == 0 {
+		return []string{}, nil
+	}
+	return payload.IDs, nil
+}
+
+func (service *DiscoverService) AddViewedMovieIDs(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	cleaned := make([]string, 0, len(ids))
+	seenInput := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" && !seenInput[trimmed] {
+			seenInput[trimmed] = true
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+
+	service.viewedMu.Lock()
+	defer service.viewedMu.Unlock()
+
+	payload, _, err := loadSetting[viewedMoviesPayload](ctx, service.database, viewedMoviesSetting)
+	if err != nil {
+		return fmt.Errorf("load existing viewed movies: %w", err)
+	}
+
+	merged := make([]string, 0, len(cleaned)+len(payload.IDs))
+	seen := make(map[string]bool, len(cleaned)+len(payload.IDs))
+
+	for _, id := range cleaned {
+		if !seen[id] {
+			seen[id] = true
+			merged = append(merged, id)
+		}
+	}
+	for _, id := range payload.IDs {
+		if !seen[id] {
+			seen[id] = true
+			merged = append(merged, id)
+			if len(merged) >= maxViewedMovies {
+				break
+			}
+		}
+	}
+
+	if err := saveSetting(ctx, service.database, viewedMoviesSetting, viewedMoviesPayload{IDs: merged}); err != nil {
+		return fmt.Errorf("save viewed movies: %w", err)
 	}
 	return nil
 }

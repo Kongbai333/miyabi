@@ -19,7 +19,7 @@ export function MovieHero({ movie }: { movie: DiscoverMovieDetail }) {
             <Badge variant="outline" className="tabular-nums">
               {movie.code}
             </Badge>
-            <MovieStateBadge movie={movie} />
+            <MovieStateBadge movie={movie} hideViewed />
           </div>
           <h1 className="text-2xl leading-tight font-bold tracking-normal sm:text-3xl">
             {movie.title}

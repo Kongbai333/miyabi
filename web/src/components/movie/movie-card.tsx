@@ -63,7 +63,7 @@ export function MovieCard({
           <MovieCover source={movie.cover ?? ''} loading={coverLoading} onReady={onCoverReady} />
         </div>
         <div className="absolute top-2 left-2 flex max-w-[calc(100%-3.5rem)] flex-wrap gap-1.5">
-          <Badge variant="outline" className="max-w-full truncate bg-background/85 backdrop-blur">
+          <Badge variant="frosted" className="max-w-full truncate">
             {movie.code}
           </Badge>
           {state}

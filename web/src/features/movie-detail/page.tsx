@@ -1,4 +1,7 @@
+import { useEffect } from 'react'
+
 import { useDiscoverMagnets, useDiscoverMovie } from '@/api/discover'
+import { useBrowseHistory } from '@/api/browse-history'
 import { AppPage } from '@/components/app-page'
 import { ErrorState, InlineError } from '@/components/error-state'
 import { PageBackButton } from '@/components/page-back-button'
@@ -11,6 +14,13 @@ import { MovieDetailSkeleton } from './skeleton'
 export function MovieDetailPage({ movieId }: { movieId: string }) {
   const detail = useDiscoverMovie(movieId)
   const magnets = useDiscoverMagnets(movieId)
+  const { recordView } = useBrowseHistory()
+
+  useEffect(() => {
+    if (movieId) {
+      recordView(movieId, detail.data?.code)
+    }
+  }, [movieId, detail.data?.code, recordView])
 
   return (
     <AppPage className="sm:px-6 lg:px-8" contentClassName="max-w-7xl gap-8">
