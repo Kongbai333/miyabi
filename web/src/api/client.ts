@@ -8,7 +8,7 @@ export class ApiError extends Error {
   }
 }
 
-type QueryValue = string | number | readonly string[] | undefined
+type QueryValue = string | number | readonly (string | number)[] | undefined
 
 export async function apiGet<T>(
   path: string,
@@ -19,7 +19,7 @@ export async function apiGet<T>(
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value === undefined || value === '') continue
     if (Array.isArray(value)) {
-      for (const item of value) url.searchParams.append(key, item)
+      for (const item of value) url.searchParams.append(key, String(item))
     } else {
       url.searchParams.set(key, String(value))
     }

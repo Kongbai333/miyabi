@@ -1,7 +1,13 @@
 import { Link } from '@tanstack/react-router'
 import { LoaderCircleIcon, RefreshCwIcon, ScanLineIcon } from 'lucide-react'
 
-import { LIBRARY_PAGE_SIZE, useLibraryMovies, useStartLibraryScan } from '@/api/library'
+import {
+  LIBRARY_PAGE_SIZE,
+  type LibraryFilter,
+  useLibraryFilterOptions,
+  useLibraryMovies,
+  useStartLibraryScan
+} from '@/api/library'
 import { isTaskActive, useTasks } from '@/api/tasks'
 import { AppPage } from '@/components/app-page'
 import { EmptyState } from '@/components/empty-state'
@@ -15,24 +21,32 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { LibraryMovieCard } from '@/features/library/movie-card'
 import { useTaskConnection } from '@/features/tasks/task-events'
+import { LibraryFilterBar } from './filter-bar'
+import { hasLibraryFilter } from './filter-params'
 import { LibraryGroupTabs } from './group-tabs'
 
 export function LibraryPage({
   page,
   group,
+  filter,
   onPageChange,
-  onGroupChange
+  onGroupChange,
+  onFilterChange
 }: {
   page: number
   group: number
+  filter: LibraryFilter
   onPageChange: (page: number) => void
   onGroupChange: (group: number) => void
+  onFilterChange: (filter: LibraryFilter) => void
 }) {
-  const library = useLibraryMovies(page, group)
+  const library = useLibraryMovies(page, group, filter)
+  const options = useLibraryFilterOptions()
   const tasks = useTasks()
   const connection = useTaskConnection()
   const startScan = useStartLibraryScan()
   const source = library.data?.source
+  const filtered = hasLibraryFilter(filter)
   const latest = tasks.data?.find(
     task =>
       source !== undefined &&
@@ -83,6 +97,17 @@ export function LibraryPage({
 
       <LibraryGroupTabs group={group} onGroupChange={onGroupChange} />
 
+      {source ? (
+        <LibraryFilterBar
+          filter={filter}
+          options={options.data}
+          loading={options.isPending}
+          error={options.isError}
+          onChange={onFilterChange}
+          onRetry={() => void options.refetch()}
+        />
+      ) : null}
+
       {tasks.isError ? (
         <InlineError
           onRetry={connection.reconnect}
@@ -105,9 +130,11 @@ export function LibraryPage({
         <>
           {source ? (
             <p className="text-sm">
-              {group > 0
-                ? `本分组 ${library.data.total} 部影片`
-                : `共 ${library.data.total} 部影片`}{' '}
+              {filtered
+                ? `筛选出 ${library.data.total} 部影片`
+                : group > 0
+                  ? `本分组 ${library.data.total} 部影片`
+                  : `共 ${library.data.total} 部影片`}{' '}
               · 每页 {LIBRARY_PAGE_SIZE} 部
             </p>
           ) : null}
@@ -126,9 +153,11 @@ export function LibraryPage({
                   ? '登录 115 并挂载媒体目录后，将自动扫描入库'
                   : scanning
                     ? '正在扫描，识别到的影片会陆续显示'
-                    : group > 0
-                      ? '这个分组还没有收藏的影片'
-                      : '未识别到影片'
+                    : filtered
+                      ? '没有符合筛选条件的影片'
+                      : group > 0
+                        ? '这个分组还没有收藏的影片'
+                        : '未识别到影片'
               }
             />
           )}

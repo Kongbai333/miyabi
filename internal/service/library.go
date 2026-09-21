@@ -20,23 +20,23 @@ type LibrarySource struct {
 }
 
 type LibraryMovie struct {
-	ID           int                `json:"id"`
-	Code         string             `json:"code"`
-	Title        string             `json:"title"`
-	JavDBID      *string            `json:"javdb_id,omitempty"`
-	Cover        *string            `json:"cover,omitempty"`
-	Poster       *string            `json:"poster,omitempty"`
-	Fanart       string             `json:"fanart,omitempty"`
-	ReleaseDate  string             `json:"release_date,omitempty"`
-	Duration     int                `json:"duration"`
-	Rating       float64            `json:"rating"`
-	Director     *LibraryEntity     `json:"director,omitempty"`
-	Maker        *LibraryEntity     `json:"maker,omitempty"`
-	Series       *LibraryEntity     `json:"series,omitempty"`
-	Actors       []LibraryEntity    `json:"actors"`
-	Tags         []LibraryTag       `json:"tags"`
-	ScrapeStatus movie.ScrapeStatus `json:"scrape_status"`
-	Watched      bool               `json:"watched"`
+	ID               int                `json:"id"`
+	Code             string             `json:"code"`
+	Title            string             `json:"title"`
+	JavDBID          *string            `json:"javdb_id,omitempty"`
+	Cover            *string            `json:"cover,omitempty"`
+	Poster           *string            `json:"poster,omitempty"`
+	Fanart           string             `json:"fanart,omitempty"`
+	ReleaseDate      string             `json:"release_date,omitempty"`
+	Duration         int                `json:"duration"`
+	Rating           float64            `json:"rating"`
+	Director         *LibraryEntity     `json:"director,omitempty"`
+	Maker            *LibraryEntity     `json:"maker,omitempty"`
+	Series           *LibraryEntity     `json:"series,omitempty"`
+	Actors           []LibraryEntity    `json:"actors"`
+	Tags             []LibraryTag       `json:"tags"`
+	ScrapeStatus     movie.ScrapeStatus `json:"scrape_status"`
+	Watched          bool               `json:"watched"`
 	FavoriteGroupIDs []int              `json:"favorite_group_ids"`
 }
 
@@ -91,7 +91,7 @@ func libraryFiles(source LibrarySource) predicate.File {
 	return file.And(file.AccountIDEQ(source.AccountID), file.RootIDEQ(source.Directory.ID))
 }
 
-func (service *LibraryService) Movies(ctx context.Context, page, limit, groupID int) (LibraryPage, error) {
+func (service *LibraryService) Movies(ctx context.Context, page, limit int, filter LibraryFilter) (LibraryPage, error) {
 	result := LibraryPage{Movies: []LibraryMovie{}, Page: page}
 	source, err := loadLibrarySource(ctx, service.database)
 	if err != nil {
@@ -102,10 +102,10 @@ func (service *LibraryService) Movies(ctx context.Context, page, limit, groupID 
 	}
 	result.Source = source
 	scope := libraryFiles(*source)
-	// A group filter narrows the same scope, so paging and counting agree.
-	movieScope := movie.HasFilesWith(scope)
-	if group := favoriteScope(groupID); group != nil {
-		movieScope = movie.And(movieScope, group)
+	// Filters narrow the same scope as the count, so paging stays consistent.
+	movieScope, err := filter.predicate(movie.HasFilesWith(scope))
+	if err != nil {
+		return result, err
 	}
 	result.Total, err = service.database.Movie.Query().Where(movieScope).Count(ctx)
 	if err != nil {

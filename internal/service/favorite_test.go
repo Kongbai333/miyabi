@@ -97,14 +97,14 @@ func TestFavoriteSetReplacesMembershipAndFiltersTheList(t *testing.T) {
 		t.Fatalf("group counts = %+v", groups)
 	}
 
-	page, err := service.Movies(ctx, 1, 20, firstGroup.ID)
+	page, err := service.Movies(ctx, 1, 20, LibraryFilter{GroupIDs: []int{firstGroup.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if page.Total != 2 || len(page.Movies) != 2 {
 		t.Fatalf("filtered page = %+v", page)
 	}
-	page, err = service.Movies(ctx, 1, 20, secondGroup.ID)
+	page, err = service.Movies(ctx, 1, 20, LibraryFilter{GroupIDs: []int{secondGroup.ID}})
 	if err != nil || page.Total != 1 || page.Movies[0].ID != first {
 		t.Fatalf("second group page = %+v, %v", page, err)
 	}
@@ -116,7 +116,7 @@ func TestFavoriteSetReplacesMembershipAndFiltersTheList(t *testing.T) {
 	if err := service.SetFavorite(ctx, first, []int{secondGroup.ID}); err != nil {
 		t.Fatal(err)
 	}
-	page, err = service.Movies(ctx, 1, 20, firstGroup.ID)
+	page, err = service.Movies(ctx, 1, 20, LibraryFilter{GroupIDs: []int{firstGroup.ID}})
 	if err != nil || page.Total != 1 || page.Movies[0].ID != second {
 		t.Fatalf("stale membership survived: %+v, %v", page, err)
 	}
@@ -125,7 +125,7 @@ func TestFavoriteSetReplacesMembershipAndFiltersTheList(t *testing.T) {
 	if err := service.SetFavorite(ctx, second, nil); err != nil {
 		t.Fatal(err)
 	}
-	page, err = service.Movies(ctx, 1, 20, 0)
+	page, err = service.Movies(ctx, 1, 20, LibraryFilter{})
 	if err != nil || page.Total != 2 {
 		t.Fatalf("clearing a star changed the library: %+v, %v", page, err)
 	}
@@ -160,7 +160,7 @@ func TestFavoriteRejectsUnknownTargetsAndCascadesOnGroupDelete(t *testing.T) {
 	if err := service.DeleteFavoriteGroup(ctx, group.ID); err != nil {
 		t.Fatal(err)
 	}
-	page, err := service.Movies(ctx, 1, 20, 0)
+	page, err := service.Movies(ctx, 1, 20, LibraryFilter{})
 	if err != nil || page.Total != 2 {
 		t.Fatalf("group delete removed movies: %+v, %v", page, err)
 	}

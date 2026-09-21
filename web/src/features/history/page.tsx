@@ -23,16 +23,22 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { LibraryGroupTabs } from '@/features/library/group-tabs'
 import { HistoryCard } from './history-card'
 
-type HistoryPageProps = { page: number; onPageChange: (page: number) => void }
+type HistoryPageProps = {
+  page: number
+  group: number
+  onPageChange: (page: number) => void
+  onGroupChange: (group: number) => void
+}
 
 export function WatchHistoryPage(props: HistoryPageProps) {
-  const history = useWatchHistory(props.page)
+  const history = useWatchHistory(props.page, props.group)
   const source = history.data?.source
   return (
     <HistoryContent
-      key={JSON.stringify([props.page, source?.account_id, source?.directory.id])}
+      key={JSON.stringify([props.page, props.group, source?.account_id, source?.directory.id])}
       {...props}
       history={history}
     />
@@ -41,7 +47,9 @@ export function WatchHistoryPage(props: HistoryPageProps) {
 
 function HistoryContent({
   page,
+  group,
   onPageChange,
+  onGroupChange,
   history
 }: HistoryPageProps & {
   history: ReturnType<typeof useWatchHistory>
@@ -149,6 +157,8 @@ function HistoryContent({
         )}
       </PageHeader>
 
+      <LibraryGroupTabs group={group} onGroupChange={onGroupChange} />
+
       {history.isPending ? (
         <MovieGridSkeleton />
       ) : history.isError ? (
@@ -160,7 +170,13 @@ function HistoryContent({
       ) : items.length === 0 ? (
         <EmptyState
           className="min-h-0 flex-1"
-          title={source ? '还没有观看记录' : '挂载媒体目录后查看观看历史'}
+          title={
+            !source
+              ? '挂载媒体目录后查看观看历史'
+              : group > 0
+                ? '这个分组还没有观看记录'
+                : '还没有观看记录'
+          }
           actions={
             !source ? (
               <Button asChild>

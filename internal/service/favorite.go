@@ -11,7 +11,6 @@ import (
 	"github.com/ppxb/miyabi/internal/ent/favorite"
 	"github.com/ppxb/miyabi/internal/ent/favoritegroup"
 	"github.com/ppxb/miyabi/internal/ent/movie"
-	"github.com/ppxb/miyabi/internal/ent/predicate"
 )
 
 var (
@@ -203,13 +202,4 @@ func valueOrEmpty(ids []int) []int {
 		return []int{}
 	}
 	return ids
-}
-
-// favoriteScope narrows the movie list to one group when the caller asks for
-// it. An empty group id keeps every movie, including unstarred ones.
-func favoriteScope(groupID int) predicate.Movie {
-	if groupID <= 0 {
-		return nil
-	}
-	return movie.HasFavoritesWith(favorite.GroupIDEQ(groupID))
 }

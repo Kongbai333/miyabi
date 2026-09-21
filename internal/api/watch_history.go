@@ -10,13 +10,14 @@ import (
 func libraryHistoryHandler(library LibraryManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var query struct {
-			Page int `form:"page,default=1" binding:"min=1,max=100000000"`
+			Page    int `form:"page,default=1" binding:"min=1,max=100000000"`
+			GroupID int `form:"group_id" binding:"min=0"`
 		}
 		if err := c.ShouldBindQuery(&query); err != nil {
 			c.Error(BadRequest(err))
 			return
 		}
-		page, err := library.WatchHistory(c.Request.Context(), query.Page)
+		page, err := library.WatchHistory(c.Request.Context(), query.Page, query.GroupID)
 		if err != nil {
 			c.Error(err)
 			return

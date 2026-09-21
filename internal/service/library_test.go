@@ -51,7 +51,7 @@ func TestLibraryPageLoadsCardMetadataWithScopedCounts(t *testing.T) {
 			return next.Query(ctx, query)
 		})
 	}))
-	page, err := library.Movies(ctx, 1, 20, 0)
+	page, err := library.Movies(ctx, 1, 20, LibraryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,15 +103,15 @@ func TestLibraryPageLoadsCardMetadataWithScopedCounts(t *testing.T) {
 			}
 		}
 	}
-	first, err := library.Movies(ctx, 1, 1, 0)
+	first, err := library.Movies(ctx, 1, 1, LibraryFilter{})
 	if err != nil || len(first.Movies) != 1 || !first.HasMore {
 		t.Fatalf("first page: %#v, %v", first, err)
 	}
-	second, err := library.Movies(ctx, 2, 1, 0)
+	second, err := library.Movies(ctx, 2, 1, LibraryFilter{})
 	if err != nil || len(second.Movies) != 1 || second.HasMore || first.Movies[0].ID == second.Movies[0].ID {
 		t.Fatalf("second page: %#v, %v", second, err)
 	}
-	if beyond, err := library.Movies(ctx, 3, 1, 0); err != nil || beyond.Movies == nil || len(beyond.Movies) != 0 || beyond.HasMore {
+	if beyond, err := library.Movies(ctx, 3, 1, LibraryFilter{}); err != nil || beyond.Movies == nil || len(beyond.Movies) != 0 || beyond.HasMore {
 		t.Fatalf("out-of-range page: %#v, %v", beyond, err)
 	}
 }
@@ -130,7 +130,7 @@ func TestLibraryPagesContainTwentyDistinctMoviesAndTheRemainder(t *testing.T) {
 	seen := make(map[int]bool)
 	previousID := 0
 	for pageNumber, count := range []int{20, 1, 0} {
-		page, err := library.Movies(ctx, pageNumber+1, 20, 0)
+		page, err := library.Movies(ctx, pageNumber+1, 20, LibraryFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,7 +156,7 @@ func TestLibraryPageKeepsEmptyAndUnmatchedSourcesUsable(t *testing.T) {
 			library.database.File.Create().SetFileID("unmatched").SetName("recording.mp4").SetSize(1024).
 				SetAccountID("100").SetRootID("10").ExecX(t.Context())
 		}
-		page, err := library.Movies(t.Context(), 1, 24, 0)
+		page, err := library.Movies(t.Context(), 1, 24, LibraryFilter{})
 		if err != nil || page.Total != 0 || page.Movies == nil || len(page.Movies) != 0 || page.HasMore {
 			t.Fatalf("empty/unmatched source: %#v, %v", page, err)
 		}

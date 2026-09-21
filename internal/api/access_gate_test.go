@@ -47,7 +47,7 @@ type accessLibraryStub struct {
 	LibraryManager
 }
 
-func (accessLibraryStub) Movies(context.Context, int, int, int) (service.LibraryPage, error) {
+func (accessLibraryStub) Movies(context.Context, int, int, service.LibraryFilter) (service.LibraryPage, error) {
 	return service.LibraryPage{Movies: []service.LibraryMovie{}}, nil
 }
 
@@ -55,6 +55,7 @@ func TestProtectedRoutesRequireTheSessionCookie(t *testing.T) {
 	router := accessRouter("test-password")
 	protected := []struct{ method, path string }{
 		{http.MethodGet, "/api/library/movies"},
+		{http.MethodGet, "/api/library/filter-options"},
 		{http.MethodGet, "/api/tasks"},
 		{http.MethodGet, "/api/settings/system"},
 		{http.MethodGet, "/api/discover/tags"},

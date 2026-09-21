@@ -42,21 +42,70 @@ export type LibraryPage = {
 
 export type LibraryFile = { id: string; name: string; path: string; size: number }
 
+export type LibraryFilterOption = { id: string; name: string; count: number }
+
+// The mounted library's own values, so the filter bar never offers a tag or an
+// actor that no movie carries.
+export type LibraryFilterOptions = {
+  tags: LibraryFilterOption[]
+  actors: LibraryFilterOption[]
+  series: LibraryFilterOption[]
+  makers: LibraryFilterOption[]
+  directors: LibraryFilterOption[]
+  years: LibraryFilterOption[]
+}
+
+// Every dimension is a multi-select on the wire, so the API stays the same if
+// the bar ever lets one dimension hold several values. The group tabs keep
+// their own single-valued param and are merged in by useLibraryMovies.
+export type LibraryFilter = {
+  tagIds: number[]
+  actorIds: string[]
+  seriesIds: string[]
+  makerIds: string[]
+  directorIds: string[]
+  years: number[]
+  watched: '' | 'yes' | 'no'
+}
+
 export const libraryKeys = {
   all: ['library'] as const,
   movieLists: ['library', 'movies'] as const,
-  movies: (page: number, group: number) => ['library', 'movies', page, group] as const
+  movies: (page: number, group: number, filter: LibraryFilter) =>
+    ['library', 'movies', page, group, filter] as const,
+  filterOptions: ['library', 'filter-options'] as const
 }
 
-export function useLibraryMovies(page: number, group = 0) {
+export function useLibraryMovies(page: number, group: number, filter: LibraryFilter) {
   return useQuery({
-    queryKey: libraryKeys.movies(page, group),
+    queryKey: libraryKeys.movies(page, group, filter),
     queryFn: ({ signal }) =>
       apiGet<LibraryPage>(
         '/api/library/movies',
-        { page, limit: LIBRARY_PAGE_SIZE, group: group > 0 ? group : undefined },
+        {
+          page,
+          limit: LIBRARY_PAGE_SIZE,
+          group_id: group > 0 ? [group] : undefined,
+          tag_id: filter.tagIds,
+          actor_id: filter.actorIds,
+          series_id: filter.seriesIds,
+          maker_id: filter.makerIds,
+          director_id: filter.directorIds,
+          year: filter.years,
+          watched: filter.watched
+        },
         signal
       ),
+    retry: false,
+    refetchOnWindowFocus: false
+  })
+}
+
+export function useLibraryFilterOptions() {
+  return useQuery({
+    queryKey: libraryKeys.filterOptions,
+    queryFn: ({ signal }) =>
+      apiGet<LibraryFilterOptions>('/api/library/filter-options', undefined, signal),
     retry: false,
     refetchOnWindowFocus: false
   })

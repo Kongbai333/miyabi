@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
+	"github.com/ppxb/miyabi/internal/ent/favorite"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/predicate"
@@ -128,15 +129,20 @@ func (service *LibraryService) MarkWatched(ctx context.Context, movieID int, sco
 	return result, nil
 }
 
-func (service *LibraryService) WatchHistory(ctx context.Context, page int) (WatchHistoryPage, error) {
+func (service *LibraryService) WatchHistory(ctx context.Context, page, groupID int) (WatchHistoryPage, error) {
 	result := WatchHistoryPage{Items: []WatchHistoryItem{}, Page: page}
 	source, err := loadLibrarySource(ctx, service.database)
 	if err != nil || source == nil {
 		return result, err
 	}
 	result.Source = source
+	// A group filter narrows the history to movies starred in that group.
+	movieScope := movie.HasFilesWith(libraryFiles(*source))
+	if groupID > 0 {
+		movieScope = movie.And(movieScope, movie.HasFavoritesWith(favorite.GroupIDEQ(groupID)))
+	}
 	query := service.database.WatchHistory.Query().Where(historyScope(*source),
-		watchhistory.HasMovieWith(movie.HasFilesWith(libraryFiles(*source))))
+		watchhistory.HasMovieWith(movieScope))
 	result.Total, err = query.Clone().Count(ctx)
 	if err != nil {
 		return result, fmt.Errorf("count watch history: %w", err)

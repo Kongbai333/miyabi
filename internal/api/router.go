@@ -62,6 +62,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	settingsAPI.PUT("/network", networkUpdateHandler(deps.Network))
 	settingsAPI.POST("/network/test", networkTestHandler(deps.Network))
 	api.GET("/library/movies", libraryMoviesHandler(deps.Library))
+	api.GET("/library/filter-options", libraryFilterOptionsHandler(deps.Library))
 	api.PUT("/library/movies/:id/watched", libraryWatchedHandler(deps.Library))
 	api.GET("/library/favorite-groups", libraryFavoriteGroupsHandler(deps.Library))
 	api.POST("/library/favorite-groups", libraryFavoriteGroupCreateHandler(deps.Library))

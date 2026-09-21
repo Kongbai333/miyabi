@@ -16,14 +16,15 @@ type watchHistoryStub struct {
 	LibraryManager
 	called   string
 	page     int
+	group    int
 	ids      []int
 	scope    service.WatchHistoryScope
 	progress service.WatchProgress
 	err      error
 }
 
-func (stub *watchHistoryStub) WatchHistory(_ context.Context, page int) (service.WatchHistoryPage, error) {
-	stub.called, stub.page = "list", page
+func (stub *watchHistoryStub) WatchHistory(_ context.Context, page, group int) (service.WatchHistoryPage, error) {
+	stub.called, stub.page, stub.group = "list", page, group
 	return service.WatchHistoryPage{Page: page, Items: []service.WatchHistoryItem{}}, stub.err
 }
 
@@ -51,6 +52,8 @@ func TestHistoryEndpointsValidatePaginationScopeSelectionAndProgress(t *testing.
 	}{
 		{name: "list", method: "GET", path: "/api/library/history", called: "list", status: 200},
 		{name: "second page", method: "GET", path: "/api/library/history?page=2", called: "list", status: 200},
+		{name: "grouped page", method: "GET", path: "/api/library/history?page=2&group_id=4", called: "list", status: 200},
+		{name: "negative group", method: "GET", path: "/api/library/history?group_id=-1", status: 400},
 		{name: "zero page", method: "GET", path: "/api/library/history?page=0", status: 400},
 		{name: "fractional page", method: "GET", path: "/api/library/history?page=1.5", status: 400},
 		{name: "overflow page", method: "GET", path: "/api/library/history?page=99999999999999999999", status: 400},
@@ -81,6 +84,9 @@ func TestHistoryEndpointsValidatePaginationScopeSelectionAndProgress(t *testing.
 			}
 			if scenario.name == "list" && (stub.page != 1 || !strings.Contains(response.Body.String(), `"items":[]`)) {
 				t.Fatal("history omitted its default page or empty items array")
+			}
+			if scenario.name == "grouped page" && (stub.page != 2 || stub.group != 4) {
+				t.Fatalf("history did not forward the group filter: page=%d group=%d", stub.page, stub.group)
 			}
 			if scenario.name == "progress" && (stub.ids[0] != 7 || stub.progress.Position != 120.5 || stub.progress.Version != 2) {
 				t.Fatal("progress payload was changed")

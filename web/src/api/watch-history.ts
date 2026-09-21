@@ -47,13 +47,18 @@ export type WatchHistoryPage = {
 
 export const watchHistoryKeys = {
   all: ['library', 'history'] as const,
-  page: (page: number) => ['library', 'history', page] as const
+  page: (page: number, group: number) => ['library', 'history', page, group] as const
 }
 
-export function useWatchHistory(page: number) {
+export function useWatchHistory(page: number, group: number) {
   return useQuery({
-    queryKey: watchHistoryKeys.page(page),
-    queryFn: ({ signal }) => apiGet<WatchHistoryPage>('/api/library/history', { page }, signal),
+    queryKey: watchHistoryKeys.page(page, group),
+    queryFn: ({ signal }) =>
+      apiGet<WatchHistoryPage>(
+        '/api/library/history',
+        { page, group_id: group > 0 ? group : undefined },
+        signal
+      ),
     staleTime: 0,
     retry: false,
     refetchOnWindowFocus: true

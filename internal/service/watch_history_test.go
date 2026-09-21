@@ -52,7 +52,7 @@ func TestWatchHistoryPaginatesRecentMoviesWithBoundedScopedQueries(t *testing.T)
 			return next.Query(ctx, query)
 		})
 	}))
-	page, err := library.WatchHistory(ctx, 1)
+	page, err := library.WatchHistory(ctx, 1, 0)
 	if err != nil || page.Source == nil || *page.Source != payload.Source || page.Total != 23 || !page.HasMore || len(page.Items) != 20 {
 		t.Fatalf("incorrect first page: %+v, %v", page, err)
 	}
@@ -63,16 +63,16 @@ func TestWatchHistoryPaginatesRecentMoviesWithBoundedScopedQueries(t *testing.T)
 	if !reflect.DeepEqual(queries, want) {
 		t.Fatalf("history loaded redundant data: %v", queries)
 	}
-	page, err = library.WatchHistory(ctx, 2)
+	page, err = library.WatchHistory(ctx, 2, 0)
 	if err != nil || len(page.Items) != 3 || page.HasMore || page.Items[2].Code != "ABP-000" {
 		t.Fatalf("incorrect final page: %+v, %v", page, err)
 	}
-	page, err = library.WatchHistory(ctx, 3)
+	page, err = library.WatchHistory(ctx, 3, 0)
 	if err != nil || len(page.Items) != 0 || page.Total != 23 || page.Items == nil {
 		t.Fatalf("out-of-range page lost its total or empty array: %+v, %v", page, err)
 	}
 	library.database.Setting.Delete().ExecX(ctx)
-	page, err = library.WatchHistory(ctx, 1)
+	page, err = library.WatchHistory(ctx, 1, 0)
 	if err != nil || page.Source != nil || page.Total != 0 || page.Items == nil || len(page.Items) != 0 {
 		t.Fatalf("unmounted history must be empty: %+v, %v", page, err)
 	}
@@ -212,5 +212,37 @@ func TestClearingHistoryPreservesMoviesAndCannotBeUndoneByLateProgress(t *testin
 	library.database.Movie.DeleteOneID(first.ID).ExecX(ctx)
 	if library.database.WatchHistory.Query().CountX(ctx) != 0 {
 		t.Fatal("removed movie left orphan history")
+	}
+}
+
+// The library group tabs also narrow the history page, so a starred movie
+// outside the selected group must not appear.
+func TestWatchHistoryFiltersByFavoriteGroup(t *testing.T) {
+	library, _, payload := libraryFixture(t)
+	ctx := t.Context()
+	group, err := library.CreateFavoriteGroup(ctx, "喜欢")
+	if err != nil {
+		t.Fatal(err)
+	}
+	starred, _ := historyFilm(t, library, payload.Source, "ABP-001")
+	other, _ := historyFilm(t, library, payload.Source, "ABP-002")
+	for _, film := range []*ent.Movie{starred, other} {
+		library.database.WatchHistory.Create().SetAccountID(payload.Source.AccountID).SetRootID(payload.Source.Directory.ID).
+			SetMovie(film).SetSessionID(uuid.NewString()).ExecX(ctx)
+	}
+	if err := library.SetFavorite(ctx, starred.ID, []int{group.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := library.WatchHistory(ctx, 1, group.ID)
+	if err != nil || page.Total != 1 || len(page.Items) != 1 || page.Items[0].MovieID != starred.ID {
+		t.Fatalf("grouped history = %+v, %v", page, err)
+	}
+	// An unknown group must narrow to nothing instead of falling back to everything.
+	if page, err := library.WatchHistory(ctx, 1, 9999); err != nil || page.Total != 0 || page.Items == nil {
+		t.Fatalf("unknown group history = %+v, %v", page, err)
+	}
+	if page, err := library.WatchHistory(ctx, 1, 0); err != nil || page.Total != 2 {
+		t.Fatalf("unfiltered history = %+v, %v", page, err)
 	}
 }

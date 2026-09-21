@@ -459,7 +459,7 @@ func TestPipelineScansScrapesAndWritesSidecarsEndToEnd(t *testing.T) {
 	if err != nil || len(states) != 1 || states[0].State != MovieInLibrary || states[0].LibraryID != record.ID {
 		t.Fatalf("movie states = %+v, %v", states, err)
 	}
-	page, err := fixture.library.Movies(ctx, 1, 20, 0)
+	page, err := fixture.library.Movies(ctx, 1, 20, LibraryFilter{})
 	if err != nil || page.Total != 1 || len(page.Movies) != 1 || page.Movies[0].Fanart != artwork.Fanart || page.Movies[0].ScrapeStatus != movie.ScrapeStatusDone {
 		t.Fatalf("library page = %+v, %v", page, err)
 	}

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -24,11 +25,12 @@ type libraryWatchStub struct {
 
 type libraryPageStub struct {
 	LibraryManager
-	page, limit, group int
+	page, limit int
+	filter      service.LibraryFilter
 }
 
-func (stub *libraryPageStub) Movies(_ context.Context, page, limit, group int) (service.LibraryPage, error) {
-	stub.page, stub.limit, stub.group = page, limit, group
+func (stub *libraryPageStub) Movies(_ context.Context, page, limit int, filter service.LibraryFilter) (service.LibraryPage, error) {
+	stub.page, stub.limit, stub.filter = page, limit, filter
 	return service.LibraryPage{Page: page, Movies: []service.LibraryMovie{}}, nil
 }
 
@@ -113,5 +115,80 @@ func TestLibraryWatchedEndpointRequiresTheOpeningSource(t *testing.T) {
 				t.Fatalf("invalid opening source reached watch recording: status=%d id=%d body=%s", response.Code, stub.id, response.Body)
 			}
 		})
+	}
+}
+
+type libraryOptionsStub struct {
+	LibraryManager
+	options service.LibraryFilterOptions
+	called  bool
+}
+
+func (stub *libraryOptionsStub) FilterOptions(context.Context) (service.LibraryFilterOptions, error) {
+	stub.called = true
+	return stub.options, nil
+}
+
+func TestLibraryMoviesForwardEveryFilterDimension(t *testing.T) {
+	stub := &libraryPageStub{}
+	router := NewRouter(Dependencies{Library: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/library/movies?page=3&limit=5"+
+		"&tag_id=1&tag_id=2&actor_id=actor-1&series_id=series-1&maker_id=maker-1"+
+		"&director_id=director-1&year=2025&year=2026&group_id=4&watched=no", nil))
+	want := service.LibraryFilter{TagIDs: []int{1, 2}, ActorIDs: []string{"actor-1"}, SeriesIDs: []string{"series-1"},
+		MakerIDs: []string{"maker-1"}, DirectorIDs: []string{"director-1"}, Years: []int{2025, 2026},
+		GroupIDs: []int{4}, Watched: "no"}
+	if response.Code != http.StatusOK || stub.page != 3 || stub.limit != 5 || !reflect.DeepEqual(stub.filter, want) {
+		t.Fatalf("library filter: status=%d page=%d limit=%d filter=%+v body=%s",
+			response.Code, stub.page, stub.limit, stub.filter, response.Body)
+	}
+}
+
+func TestLibraryMoviesRejectUnusableFilterValues(t *testing.T) {
+	for _, query := range []string{
+		"?watched=maybe", "?tag_id=0", "?tag_id=abc", "?year=1899", "?year=3000",
+		"?group_id=0", "?actor_id=", "?series_id=", "?maker_id=", "?director_id=", "?limit=101",
+	} {
+		t.Run(query, func(t *testing.T) {
+			stub := &libraryPageStub{}
+			router := NewRouter(Dependencies{Library: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/library/movies"+query, nil))
+			if response.Code != http.StatusBadRequest || stub.limit != 0 {
+				t.Fatalf("invalid filter reached the service: status=%d limit=%d body=%s", response.Code, stub.limit, response.Body)
+			}
+		})
+	}
+}
+
+func TestLibraryFilterOptionsEndpointReturnsTheMountedLibraryValues(t *testing.T) {
+	stub := &libraryOptionsStub{options: service.LibraryFilterOptions{
+		Tags:   []service.LibraryFilterOption{{ID: "1", Name: "Tag", Count: 2}},
+		Actors: []service.LibraryFilterOption{}, Series: []service.LibraryFilterOption{},
+		Makers: []service.LibraryFilterOption{}, Directors: []service.LibraryFilterOption{},
+		Years: []service.LibraryFilterOption{{ID: "2026", Name: "2026", Count: 1}},
+	}}
+	router := NewRouter(Dependencies{Library: stub, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/library/filter-options", nil))
+	if response.Code != http.StatusOK || !stub.called {
+		t.Fatalf("filter options: status=%d called=%t body=%s", response.Code, stub.called, response.Body)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &fields); err != nil {
+		t.Fatalf("filter options are not an object: %s, %v", response.Body, err)
+	}
+	for _, dimension := range []string{"tags", "actors", "series", "makers", "directors", "years"} {
+		if _, exists := fields[dimension]; !exists {
+			t.Errorf("filter options omit %s", dimension)
+		}
+	}
+	var options service.LibraryFilterOptions
+	if err := json.Unmarshal(response.Body.Bytes(), &options); err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Tags) != 1 || options.Tags[0].Name != "Tag" || options.Tags[0].Count != 2 || len(options.Years) != 1 {
+		t.Fatalf("filter options = %+v", options)
 	}
 }

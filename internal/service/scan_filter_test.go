@@ -111,7 +111,7 @@ func TestRescanRepairsAuxiliaryVideosAndSSNISubtitleAlias(t *testing.T) {
 	if err := library.Scan(ctx, TaskJob{ID: queued.ID, Payload: queued.Payload}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := library.Movies(ctx, 1, 24, 0)
+	page, err := library.Movies(ctx, 1, 24, LibraryFilter{})
 	if err != nil || page.Total != 11 || library.database.File.Query().CountX(ctx) != 27 ||
 		library.database.File.Query().Where(file.MovieIDIsNil()).CountX(ctx) != 16 {
 		t.Fatalf("rescan did not repair the reported library: %+v err=%v", page, err)
