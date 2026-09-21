@@ -34,11 +34,7 @@ func (err *requestError) DomainKind() domain.Kind {
 }
 
 func (err *requestError) PublicMessage() string {
-	var public interface{ PublicMessage() string }
-	if errors.As(err.err, &public) {
-		return public.PublicMessage()
-	}
-	return err.err.Error()
+	return domain.PublicMessage(err.err)
 }
 
 func BadRequest(err error) error {
@@ -77,14 +73,6 @@ func mapErrorStatus(err error) (int, domain.Kind) {
 	}
 }
 
-func publicErrorMessage(err error) string {
-	var public interface{ PublicMessage() string }
-	if errors.As(err, &public) {
-		return public.PublicMessage()
-	}
-	return err.Error()
-}
-
 func errorMiddleware(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
@@ -106,7 +94,7 @@ func errorMiddleware(logger *slog.Logger) gin.HandlerFunc {
 		}
 
 		status, kind := mapErrorStatus(err)
-		message := publicErrorMessage(err)
+		message := domain.PublicMessage(err)
 
 		attrs := []any{
 			"method", c.Request.Method,

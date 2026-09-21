@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/monitor"
 )
@@ -179,7 +180,7 @@ func (service *MonitorService) checkOne(ctx context.Context, record *ent.Monitor
 	now := time.Now()
 	magnets, err := service.discover.Magnets(ctx, record.MovieID)
 	if err != nil {
-		return service.deferCheck(ctx, record, now, fmt.Errorf("查询磁力失败：%w", err))
+		return service.deferCheck(ctx, record, now, domain.E(domain.KindUpstream, "查询磁力失败："+domain.PublicMessage(err), err))
 	}
 	if len(magnets) == 0 {
 		next, stale := nextMonitorCheck(now, record.ReleaseDate, record.CreatedAt)
@@ -200,7 +201,7 @@ func (service *MonitorService) checkOne(ctx context.Context, record *ent.Monitor
 	hash := strings.ToLower(magnets[0].Hash)
 	submission, err := service.offline.Add(ctx, record.MovieID, hash)
 	if err != nil {
-		return service.deferCheck(ctx, record, now, fmt.Errorf("加入 115 失败：%w", err))
+		return service.deferCheck(ctx, record, now, domain.E(domain.KindUpstream, "加入 115 失败："+domain.PublicMessage(err), err))
 	}
 	if err := record.Update().SetStatus(monitor.StatusAdded).SetHash(hash).SetTaskID(submission.TaskID).
 		SetLastCheckedAt(now).AddChecks(1).ClearNextCheckAt().ClearError().Exec(ctx); err != nil && !ent.IsNotFound(err) {
@@ -212,10 +213,11 @@ func (service *MonitorService) checkOne(ctx context.Context, record *ent.Monitor
 }
 
 // deferCheck records a transient failure and retries within the hour rather
-// than consuming the daily slot.
+// than consuming the daily slot. The record stores the public message only;
+// the returned error keeps the full cause chain for logs.
 func (service *MonitorService) deferCheck(ctx context.Context, record *ent.Monitor, now time.Time, cause error) error {
 	if err := record.Update().SetLastCheckedAt(now).SetNextCheckAt(now.Add(monitorRetryInterval)).
-		SetError(cause.Error()).Exec(ctx); err != nil && !ent.IsNotFound(err) {
+		SetError(domain.PublicMessage(cause)).Exec(ctx); err != nil && !ent.IsNotFound(err) {
 		return fmt.Errorf("defer monitor %d: %w", record.ID, err)
 	}
 	service.tasks.NotifyMonitorChanged()

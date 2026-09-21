@@ -75,7 +75,7 @@ func TestScanDiscardsLatePageAfterSourceChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	release()
-	if err := awaitPan(t, finished); !errors.Is(err, errPanSourceChanged) {
+	if err := awaitPan(t, finished); !errors.Is(err, ErrSourceChanged) {
 		t.Fatalf("stale scan = %v", err)
 	}
 	files := library.database.File.Query().AllX(ctx)
@@ -115,7 +115,7 @@ func TestMetadataSourceChangeAfterInfoPreventsUpload(t *testing.T) {
 		t.Fatal(err)
 	}
 	release()
-	if err := awaitPan(t, finished); !errors.Is(err, errPanSourceChanged) {
+	if err := awaitPan(t, finished); !errors.Is(err, ErrSourceChanged) {
 		t.Fatalf("stale metadata upload = %v", err)
 	}
 	if uploads.Load() != 0 {

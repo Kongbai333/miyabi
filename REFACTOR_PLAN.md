@@ -107,7 +107,7 @@ type Source interface {
 - 一个开关加一个地址，没有按目标的细分。开启时 JavDB 与 JavBus 全部走代理，115 永远直连。
 - `MIYABI_PROXY` 与 `config.Proxy` **彻底删除**，不作为初始种子。理由：115 必须直连，JavDB 也提供直连线路，没有"必须靠环境变量才能启动"的场景；settings 无记录时默认直连。
 - 支持 `http://`、`https://`、`socks5://`，可带用户名密码。**不做密码脱敏**：自托管单用户，且已有访问密码门禁，脱敏加"******"回填只增加复杂度。
-- 校验失败统一包装 `netx.ErrInvalidProxy`，错误文案为中文，API 错误中间件映射为 400，前端直接展示后端消息，不做字符串匹配。
+- 校验失败返回 `domain.E(KindInvalid, ...)`，错误文案为中文，API 错误中间件按 Kind 映射为 400，前端直接展示后端消息，不做字符串匹配。
 
 **`internal/netx`**
 
@@ -148,7 +148,7 @@ func NewFingerprintClient(opts FingerprintOptions) (tlsclient.HttpClient, error)
 1. ✅ `internal/netx`：管理器 + 客户端工厂，单测覆盖 Resolve 开关、Update 广播与合并、URL 校验、工厂按请求解析代理。
 2. ✅ `pan.New()` 无参数走直连工厂；`javdb.Options.Proxy` 改为 `*netx.ProxyManager`。
 3. ✅ `javdb.Client.reinstall()` 订阅变更重建 transport，单测覆盖。
-4. ✅ settings 读写、三个端点；`ErrInvalidProxy` 映射 400。
+4. ✅ settings 读写、三个端点；校验错误按 `domain.KindInvalid` 映射 400。
 5. ✅ 前端分区，探测结果单条 toast 汇总。
 6. ✅ 删除 `config.Proxy` 与 `MIYABI_PROXY`（README 中的该变量说明待用户自行更新，AGENTS.md 禁止擅改 README）。
 
@@ -542,7 +542,9 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 
 - `golang.org/x/net/html` 提升为直接依赖。
 - 代理：一个开关一个地址；开启时 JavDB 与 JavBus 走代理，115 永远直连。JavBus 无镜像，不做端点管理。
-- 代理（2026-09-20）：`MIYABI_PROXY` 彻底删除，不作初始种子；代理密码不脱敏；校验错误中文化并以 `netx.ErrInvalidProxy` 哨兵映射 400。
+- 代理（2026-09-20）：`MIYABI_PROXY` 彻底删除，不作初始种子；代理密码不脱敏；校验错误中文化并映射 400（哨兵 `netx.ErrInvalidProxy` 已于 2026-09-21 随 B1 删除，改为 `domain.KindInvalid`）。
+- 代理开关（2026-09-21）：`Normalize` 在地址为空时把 `Enabled` 归一为 false 并持久化，“开启但无地址”不是合法状态。
+- 错误模型（2026-09-21）：`domain.Error` 不实现自定义 `Is`，哨兵只按指针身份匹配，分类一律走 `domain.IsKind / KindOf`；两者是正交概念，不混用。基础设施层错误类型（`pan.apiError`、`javdb.APIError / HTTPError / networkError`）通过 `DomainKind()` 与 `PublicMessage()` 接入，不在 service 层逐个翻译。
 - JavBus 数据默认关闭，设置页可开。
 - 磁力按来源加徽章。
 - 追踪改为订阅，支持影片与演员；自动推送默认值在设置页由用户选择；独立路由 `/subscriptions` 进 `FloatingNav`；支持单部、多选、一键入库，批量走任务队列。

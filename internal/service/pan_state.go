@@ -9,7 +9,6 @@ import (
 )
 
 var ErrSourceChanged = domain.E(domain.KindConflict, "媒体目录或登录账号已变更，请重新扫描", nil)
-var errPanSourceChanged = ErrSourceChanged
 
 // contextLock has a usable zero value and lets waiting callers leave promptly.
 type contextLock struct {
@@ -81,7 +80,7 @@ func (service *PanService) credentials(expected panSnapshot) (panSnapshot, error
 func (service *PanService) sourceState(source LibrarySource, version uint64) (panSnapshot, error) {
 	state := service.snapshot()
 	if !state.matchesSource(source, version) {
-		return panSnapshot{}, errPanSourceChanged
+		return panSnapshot{}, ErrSourceChanged
 	}
 	return state, nil
 }

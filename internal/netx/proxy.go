@@ -1,7 +1,6 @@
 package netx
 
 import (
-	"fmt"
 	"net/url"
 	"strings"
 	"sync"
@@ -9,10 +8,6 @@ import (
 
 	"github.com/ppxb/miyabi/internal/domain"
 )
-
-// ErrInvalidProxy wraps every configuration validation failure so callers can
-// map it to a client error without inspecting the message.
-var ErrInvalidProxy = domain.E(domain.KindInvalid, "代理配置无效", nil)
 
 // ProxyConfig is the process-wide upstream proxy configuration. A disabled
 // proxy keeps its URL so it can be enabled again without re-entering it.
@@ -138,15 +133,21 @@ func parseProxyURL(raw string) (*url.URL, error) {
 	}
 	proxy, err := url.Parse(raw)
 	if err != nil {
-		return nil, domain.E(domain.KindInvalid, "代理配置无效: 代理地址格式错误", fmt.Errorf("%w: %v", ErrInvalidProxy, err))
+		return nil, invalidProxy("代理地址格式错误", err)
 	}
 	if proxy.Scheme == "" || proxy.Hostname() == "" {
-		return nil, domain.E(domain.KindInvalid, "代理配置无效: 代理地址必须包含协议（如 http://）与主机地址", ErrInvalidProxy)
+		return nil, invalidProxy("代理地址必须包含协议（如 http://）与主机地址", nil)
 	}
 	proxy.Scheme = strings.ToLower(proxy.Scheme)
 	switch proxy.Scheme {
 	case "http", "https", "socks5":
 		return proxy, nil
 	}
-	return nil, domain.E(domain.KindInvalid, "代理配置无效: 代理协议仅支持 http://、https:// 或 socks5://", ErrInvalidProxy)
+	return nil, invalidProxy("代理协议仅支持 http://、https:// 或 socks5://", nil)
+}
+
+// invalidProxy reports a configuration validation failure. The API layer maps
+// KindInvalid to 400 and shows the message verbatim.
+func invalidProxy(reason string, cause error) error {
+	return domain.E(domain.KindInvalid, "代理配置无效: "+reason, cause)
 }

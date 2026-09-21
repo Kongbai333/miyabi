@@ -1,9 +1,10 @@
 package netx
 
 import (
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/ppxb/miyabi/internal/domain"
 )
 
 func TestNewProxyManagerDefaultsToDirect(t *testing.T) {
@@ -60,8 +61,8 @@ func TestProxyManagerRejectsInvalidConfigurations(t *testing.T) {
 		{name: "malformed URL", config: ProxyConfig{URL: "http://[::1"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewProxyManager(test.config); !errors.Is(err, ErrInvalidProxy) {
-				t.Fatalf("NewProxyManager() error = %v, want ErrInvalidProxy", err)
+			if _, err := NewProxyManager(test.config); !domain.IsKind(err, domain.KindInvalid) {
+				t.Fatalf("NewProxyManager() error = %v, want domain.KindInvalid", err)
 			}
 		})
 	}

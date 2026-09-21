@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/netx"
 )
 
@@ -70,6 +71,15 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Action, e.Message)
 }
 
+func (e *APIError) DomainKind() domain.Kind { return domain.KindUpstream }
+
+func (e *APIError) PublicMessage() string {
+	if e.Message == "" {
+		return "JavDB 返回了错误"
+	}
+	return "JavDB 返回了错误：" + e.Message
+}
+
 // HTTPError is returned for a non-success HTTP status.
 type HTTPError struct {
 	StatusCode int
@@ -77,4 +87,10 @@ type HTTPError struct {
 
 func (e *HTTPError) Error() string {
 	return fmt.Sprintf("JavDB returned HTTP %d", e.StatusCode)
+}
+
+func (e *HTTPError) DomainKind() domain.Kind { return domain.KindUpstream }
+
+func (e *HTTPError) PublicMessage() string {
+	return fmt.Sprintf("JavDB 服务异常（HTTP %d），请稍后重试", e.StatusCode)
 }

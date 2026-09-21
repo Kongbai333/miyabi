@@ -216,7 +216,10 @@ func (c *Client) watchProxy() {
 		select {
 		case <-c.routeContext.Done():
 			return
-		case <-c.proxyChanges:
+		case _, ok := <-c.proxyChanges:
+			if !ok {
+				return
+			}
 			state, err := c.reinstall()
 			if err != nil {
 				slog.Warn("JavDB transport keeps previous proxy after change", "error", err)

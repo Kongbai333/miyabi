@@ -135,7 +135,7 @@ func TestPanMountChangeDuringRefreshStopsQueuedSourceRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	release()
-	if err := awaitPan(t, finished); !errors.Is(err, errPanSourceChanged) {
+	if err := awaitPan(t, finished); !errors.Is(err, ErrSourceChanged) {
 		t.Fatalf("request on replaced source = %v", err)
 	}
 	assertPanTokens(t, drive, refreshed)

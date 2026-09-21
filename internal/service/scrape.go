@@ -24,11 +24,10 @@ import (
 
 type metadataPayload struct {
 	Source     LibrarySource `json:"source"`
+	ScanTaskID int           `json:"scan_task_id"`
 	MovieID    int           `json:"movie_id"`
 	Code       string        `json:"code"`
 	JavDBID    string        `json:"javdb_id,omitempty"`
-	Directory  string        `json:"directory,omitempty"`
-	ScanTaskID int           `json:"scan_task_id,omitempty"`
 }
 
 type artworkOrigin struct {

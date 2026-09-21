@@ -164,7 +164,7 @@ func TestLateMountRequestsCannotReplaceANewerSource(t *testing.T) {
 					t.Fatalf("same mount retry failed: %v", err)
 				}
 			case "30":
-				if !errors.Is(err, errPanSourceChanged) {
+				if !errors.Is(err, ErrSourceChanged) {
 					t.Fatalf("stale directory request=%v", err)
 				}
 			case "disconnect":
