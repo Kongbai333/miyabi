@@ -16,6 +16,7 @@ import (
 	"github.com/ppxb/miyabi/internal/api"
 	"github.com/ppxb/miyabi/internal/config"
 	"github.com/ppxb/miyabi/internal/database"
+	"github.com/ppxb/miyabi/internal/drive"
 	mediaimage "github.com/ppxb/miyabi/internal/image"
 	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/logging"
@@ -66,18 +67,19 @@ func run(args []string) error {
 	defer discover.Close()
 	taskRegistry := tasks.NewRegistry()
 	taskSvc := tasks.NewService(store.Client, taskRegistry)
-	drive, err := service.NewPanService(context.Background(), store.Client, taskSvc)
+	driveSvc, err := drive.New(context.Background(), store.Client)
 	if err != nil {
-		return fmt.Errorf("initialize pan service: %w", err)
+		return fmt.Errorf("initialize drive service: %w", err)
 	}
-	defer drive.Close()
-	offline := service.NewOfflineService(store.Client, discover, drive, taskSvc)
+	defer driveSvc.Close()
+	discover.SetDrive(driveSvc)
+	offline := service.NewOfflineService(store.Client, discover, driveSvc, taskSvc)
 	monitors := service.NewMonitorService(store.Client, discover, offline, taskSvc)
 	images, err := mediaimage.NewCache(cfg.DataDir)
 	if err != nil {
 		return err
 	}
-	library := service.NewLibraryService(store.Client, drive, taskSvc, images)
+	library := service.NewLibraryService(store.Client, driveSvc, taskSvc, images)
 	play := service.NewPlayService(library)
 	defer play.Close()
 	scrape := service.NewScrapeService(library, discover, images)
@@ -98,7 +100,7 @@ func run(args []string) error {
 		Health:   store,
 		Access:   service.NewAccessGateService(cfg.AccessPassword),
 		Discover: discover,
-		Pan:      drive,
+		Pan:      driveSvc,
 		Offline:  offline,
 		Monitor:  monitors,
 		Library:  library,

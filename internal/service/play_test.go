@@ -28,12 +28,9 @@ func playFixture(t *testing.T) (*PlayService, domain.LibrarySource) {
 	}, &payload); err != nil {
 		t.Fatal(err)
 	}
-	library.drive = &PanService{
-		client:    pan.New(),
-		tokens:    pan.Tokens{AccessToken: "fixture-token", ExpiresAt: time.Now().Add(time.Hour)},
-		directory: panLibraryDirectory{AccountID: payload.Source.AccountID, LibraryDirectory: payload.Source.Directory},
+	if err := library.drive.MountSource(t.Context(), payload.Source, pan.Tokens{AccessToken: "fixture-token", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(library.drive.Close)
 	service := NewPlayService(library)
 	t.Cleanup(service.Close)
 	return service, payload.Source
@@ -51,9 +48,9 @@ func TestPlayFilesUsesOnlyCurrentLibrarySource(t *testing.T) {
 	if err != nil || len(files.Files) != 2 || files.Files[0].ID != "101" || files.Files[1].ID != "102" {
 		t.Fatalf("playable files = %#v, error = %v", files, err)
 	}
-	if err := saveSetting(t.Context(), db, panDirectorySetting, panLibraryDirectory{
-		AccountID: source.AccountID, LibraryDirectory: domain.LibraryDirectory{ID: "empty"},
-	}); err != nil {
+	if err := service.library.drive.MountSource(t.Context(), domain.LibrarySource{
+		AccountID: source.AccountID, Directory: domain.LibraryDirectory{ID: "empty"},
+	}, pan.Tokens{AccessToken: "fixture-token", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.Files(t.Context(), movieID); !ent.IsNotFound(err) {
@@ -120,7 +117,7 @@ func TestPlaybackRejectsSourceChangesAndUnknownResources(t *testing.T) {
 	for _, change := range []string{"login", "logout", "directory", "account", "release"} {
 		t.Run(change, func(t *testing.T) {
 			service, source := playFixture(t)
-			playback, err := service.createSession(source, 0, []pan.PlaySource{{URL: "https://cdn.example/playlist?sign=fixture", Height: 1080}})
+			playback, err := service.createSession(source, service.library.drive.AuthorizationVersion(), []pan.PlaySource{{URL: "https://cdn.example/playlist?sign=fixture", Height: 1080}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -134,13 +131,19 @@ func TestPlaybackRejectsSourceChangesAndUnknownResources(t *testing.T) {
 			drive := service.library.drive
 			switch change {
 			case "login":
-				drive.authorizationVersion++
+				drive.BumpAuthorization()
 			case "logout":
-				drive.tokens.AccessToken = ""
+				if _, err := drive.Disconnect(t.Context()); err != nil {
+					t.Fatal(err)
+				}
 			case "directory":
-				drive.directory.ID = "other"
+				if err := drive.MountSource(t.Context(), domain.LibrarySource{AccountID: source.AccountID, Directory: domain.LibraryDirectory{ID: "other"}}, pan.Tokens{AccessToken: "fixture-token"}); err != nil {
+					t.Fatal(err)
+				}
 			case "account":
-				drive.directory.AccountID = "other"
+				if err := drive.MountSource(t.Context(), domain.LibrarySource{AccountID: "other", Directory: source.Directory}, pan.Tokens{AccessToken: "fixture-token"}); err != nil {
+					t.Fatal(err)
+				}
 			case "release":
 				service.Release(playback.ID)
 			}
@@ -210,7 +213,7 @@ func TestPlaybackStreamPreservesRangeAndHead(t *testing.T) {
 	}))
 	defer upstream.Close()
 	service, source := playFixture(t)
-	playback, err := service.createSession(source, 0, []pan.PlaySource{{URL: upstream.URL + "/playlist", Height: 1080}})
+	playback, err := service.createSession(source, service.library.drive.AuthorizationVersion(), []pan.PlaySource{{URL: upstream.URL + "/playlist", Height: 1080}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +262,7 @@ func TestPlaybackRewritesRedirectedExtensionlessPlaylists(t *testing.T) {
 	}))
 	defer upstream.Close()
 	service, source := playFixture(t)
-	playback, err := service.createSession(source, 0, []pan.PlaySource{{URL: upstream.URL + "/start", Height: 1080}})
+	playback, err := service.createSession(source, service.library.drive.AuthorizationVersion(), []pan.PlaySource{{URL: upstream.URL + "/start", Height: 1080}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +299,7 @@ func TestPlaybackReleaseCancelsStreamingWithoutBufferingWholeSegment(t *testing.
 	}))
 	defer upstream.Close()
 	service, source := playFixture(t)
-	playback, err := service.createSession(source, 0, []pan.PlaySource{{URL: upstream.URL + "/playlist", Height: 1080}})
+	playback, err := service.createSession(source, service.library.drive.AuthorizationVersion(), []pan.PlaySource{{URL: upstream.URL + "/playlist", Height: 1080}})
 	if err != nil {
 		t.Fatal(err)
 	}

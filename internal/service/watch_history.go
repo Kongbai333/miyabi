@@ -79,17 +79,14 @@ func historyScope(source domain.LibrarySource) predicate.WatchHistory {
 func (service *LibraryService) MarkWatched(ctx context.Context, movieID int, scope WatchHistoryScope) (WatchSession, error) {
 	var result WatchSession
 	libraryChanged := false
+	source := service.drive.Source()
+	if source == nil {
+		return result, ErrMediaDirectoryRequired
+	}
+	if source.AccountID != scope.AccountID || source.Directory.ID != scope.DirectoryID {
+		return result, ErrWatchHistorySourceChanged
+	}
 	err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
-		source, err := loadLibrarySource(ctx, tx.Client())
-		if err != nil {
-			return err
-		}
-		if source == nil {
-			return ErrMediaDirectoryRequired
-		}
-		if source.AccountID != scope.AccountID || source.Directory.ID != scope.DirectoryID {
-			return ErrWatchHistorySourceChanged
-		}
 		record, err := tx.Movie.Query().Where(movie.IDEQ(movieID), movie.HasFilesWith(libraryFiles(*source))).
 			Select(movie.FieldID, movie.FieldWatched).Only(ctx)
 		if err != nil {
@@ -130,17 +127,18 @@ func (service *LibraryService) MarkWatched(ctx context.Context, movieID int, sco
 
 func (service *LibraryService) WatchHistory(ctx context.Context, page int) (WatchHistoryPage, error) {
 	result := WatchHistoryPage{Items: []WatchHistoryItem{}, Page: page}
-	source, err := loadLibrarySource(ctx, service.database)
-	if err != nil || source == nil {
-		return result, err
+	source := service.drive.Source()
+	if source == nil {
+		return result, nil
 	}
 	result.Source = source
 	query := service.database.WatchHistory.Query().Where(historyScope(*source),
 		watchhistory.HasMovieWith(movie.HasFilesWith(libraryFiles(*source))))
-	result.Total, err = query.Clone().Count(ctx)
+	total, err := query.Clone().Count(ctx)
 	if err != nil {
 		return result, fmt.Errorf("count watch history: %w", err)
 	}
+	result.Total = total
 	if result.Total == 0 {
 		return result, nil
 	}
@@ -174,15 +172,12 @@ func (service *LibraryService) SaveWatchProgress(ctx context.Context, id int, pr
 		math.IsNaN(progress.Duration) || math.IsInf(progress.Duration, 0) {
 		return ErrInvalidWatchProgress
 	}
+	source := service.drive.Source()
+	if source == nil {
+		return ErrMediaDirectoryRequired
+	}
 	changed := false
 	err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
-		source, err := loadLibrarySource(ctx, tx.Client())
-		if err != nil {
-			return err
-		}
-		if source == nil {
-			return ErrMediaDirectoryRequired
-		}
 		record, err := tx.WatchHistory.Query().Where(historyScope(*source), watchhistory.IDEQ(id)).Only(ctx)
 		if err != nil {
 			return err
@@ -229,15 +224,13 @@ func (service *LibraryService) ClearWatchHistory(ctx context.Context, scope Watc
 }
 
 func (service *LibraryService) deleteWatchHistory(ctx context.Context, scope WatchHistoryScope, filters ...predicate.WatchHistory) (int, error) {
+	source := service.drive.Source()
+	if source == nil || source.AccountID != scope.AccountID || source.Directory.ID != scope.DirectoryID {
+		return 0, ErrWatchHistorySourceChanged
+	}
 	count := 0
 	err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
-		source, err := loadLibrarySource(ctx, tx.Client())
-		if err != nil {
-			return err
-		}
-		if source == nil || source.AccountID != scope.AccountID || source.Directory.ID != scope.DirectoryID {
-			return ErrWatchHistorySourceChanged
-		}
+		var err error
 		count, err = tx.WatchHistory.Delete().Where(historyScope(*source)).Where(filters...).Exec(ctx)
 		return err
 	})

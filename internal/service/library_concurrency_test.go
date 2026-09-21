@@ -3,19 +3,21 @@ package service
 import (
 	"context"
 	"errors"
-	"github.com/ppxb/miyabi/internal/domain"
-	"github.com/ppxb/miyabi/internal/tasks"
 	"sync/atomic"
 	"testing"
 
+	"github.com/ppxb/miyabi/internal/domain"
+	drivePkg "github.com/ppxb/miyabi/internal/drive"
+	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 func TestPanDatabaseCommitDoesNotBlockPlaybackOrCanceledWaiters(t *testing.T) {
 	play, source := playFixture(t)
 	drive := play.library.drive
-	playback, err := play.createSession(source, 0, []pan.PlaySource{{URL: "https://cdn.example/video", Height: 1080}})
+	playback, err := play.createSession(source, drive.AuthorizationVersion(), []pan.PlaySource{{URL: "https://cdn.example/video", Height: 1080}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +25,12 @@ func TestPanDatabaseCommitDoesNotBlockPlaybackOrCanceledWaiters(t *testing.T) {
 	hold, release := panTestGate(t)
 	committed := make(chan error, 1)
 	go func() {
-		committed <- drive.commitSource(t.Context(), source, 0, func() error {
+		sess, err := drive.OpenSource(t.Context(), source)
+		if err != nil {
+			committed <- err
+			return
+		}
+		committed <- sess.Commit(t.Context(), func(tx *ent.Tx) error {
 			started <- struct{}{}
 			<-hold
 			return nil
@@ -55,7 +62,7 @@ func TestPanDatabaseCommitDoesNotBlockPlaybackOrCanceledWaiters(t *testing.T) {
 func TestScanDiscardsLatePageAfterSourceChange(t *testing.T) {
 	library, client := panConcurrencyFixture(t)
 	drive, ctx := library.drive, t.Context()
-	source := drive.snapshot().source()
+	source := *drive.Source()
 	queued := library.database.Task.Query().Where(task.TypeEQ("scan")).OnlyX(ctx)
 	payload := scanPayload{Source: source, Scan: domain.ScanProgress{Stage: "scanning"}}
 	if err := library.indexScanPage(ctx, queued.ID, "previous-scan", "/Movies", []scanVideo{fixtureVideo("101", "ABP-001.mp4")}, &payload); err != nil {
@@ -77,7 +84,7 @@ func TestScanDiscardsLatePageAfterSourceChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	release()
-	if err := awaitPan(t, finished); !errors.Is(err, ErrSourceChanged) {
+	if err := awaitPan(t, finished); !errors.Is(err, drivePkg.ErrSourceChanged) {
 		t.Fatalf("stale scan = %v", err)
 	}
 	files := library.database.File.Query().AllX(ctx)
@@ -91,7 +98,7 @@ func TestScanDiscardsLatePageAfterSourceChange(t *testing.T) {
 
 func TestMetadataSourceChangeAfterInfoPreventsUpload(t *testing.T) {
 	library, client := panConcurrencyFixture(t)
-	source := library.drive.snapshot().source()
+	source := *library.drive.Source()
 	started := make(chan struct{}, 1)
 	hold, release := panTestGate(t)
 	video := pan.File{ID: "video", ParentID: source.Directory.ID, Name: "ABP-001.mp4"}
@@ -108,7 +115,12 @@ func TestMetadataSourceChangeAfterInfoPreventsUpload(t *testing.T) {
 	finished := make(chan error, 1)
 	go func() {
 		scrape := &ScrapeService{library: library}
-		finished <- scrape.uploadSidecar(t.Context(), source, 0, movieDirectory{
+		sess, err := library.drive.OpenSource(t.Context(), source)
+		if err != nil {
+			finished <- err
+			return
+		}
+		finished <- scrape.uploadSidecar(t.Context(), sess, movieDirectory{
 			ID: source.Directory.ID, Files: []pan.File{video}, VideoIDs: map[string]bool{video.ID: true},
 		}, "movie.nfo", []byte("fixture"))
 	}()
@@ -117,7 +129,7 @@ func TestMetadataSourceChangeAfterInfoPreventsUpload(t *testing.T) {
 		t.Fatal(err)
 	}
 	release()
-	if err := awaitPan(t, finished); !errors.Is(err, ErrSourceChanged) {
+	if err := awaitPan(t, finished); !errors.Is(err, drivePkg.ErrSourceChanged) {
 		t.Fatalf("stale metadata upload = %v", err)
 	}
 	if uploads.Load() != 0 {

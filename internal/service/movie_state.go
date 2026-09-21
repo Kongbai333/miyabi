@@ -8,6 +8,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
 	"github.com/ppxb/miyabi/internal/codeid"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/task"
 )
@@ -36,9 +37,12 @@ func (service *DiscoverService) MovieStates(ctx context.Context, identities []Mo
 		ids[index], codes[index] = item.ID, codeid.Normalize(item.Code)
 		result[index] = DiscoverMovieState{ID: item.ID, State: MovieNotInLibrary}
 	}
-	source, err := loadLibrarySource(ctx, service.database)
-	if err != nil || source == nil {
-		return result, err
+	var source *domain.LibrarySource
+	if service.drive != nil {
+		source = service.drive.Source()
+	}
+	if source == nil {
+		return result, nil
 	}
 	localMovies, err := service.database.Movie.Query().Where(
 		movie.Or(movie.JavdbIDIn(ids...), movie.And(movie.JavdbIDIsNil(), movie.CodeIn(codes...))),

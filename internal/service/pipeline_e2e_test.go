@@ -22,12 +22,14 @@ import (
 	"github.com/ppxb/miyabi/internal/nfo"
 	"github.com/ppxb/miyabi/internal/pan"
 	"github.com/ppxb/miyabi/internal/tasks"
+
+	drivepkg "github.com/ppxb/miyabi/internal/drive"
 )
 
 // fakeDrive is an in-memory 115 account: a directory tree, file contents keyed
 // by pick code, and a record of every sidecar upload in call order.
 type fakeDrive struct {
-	panClient
+	drivepkg.Client
 	mu        sync.Mutex
 	accountID string
 	dirs      map[string]fakeDirectory
@@ -287,17 +289,14 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 	drive.addDirectory("10", "0", "Movies")
 
 	taskSvc := tasks.NewService(store.Client, tasks.NewRegistry())
-	pan := &PanService{
-		database: store.Client, client: drive, tasks: taskSvc, tokens: panTestTokens("pipeline"),
-		directory: panLibraryDirectory{AccountID: source.AccountID, LibraryDirectory: source.Directory},
-	}
-	if err := saveSetting(ctx, store.Client, panCredentialsSetting, pan.tokens); err != nil {
+	d, err := drivepkg.NewWithClient(ctx, store.Client, drive)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := saveSetting(ctx, store.Client, panDirectorySetting, pan.directory); err != nil {
+	if err := d.MountSource(ctx, source, panTestTokens("pipeline")); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pan.Close)
+	t.Cleanup(d.Close)
 
 	images, err := mediaimage.NewCache(t.TempDir())
 	if err != nil {
@@ -308,9 +307,10 @@ func newPipelineFixture(t *testing.T) *pipelineFixture {
 		t.Fatal(err)
 	}
 	discover.javdb.Close()
+	discover.SetDrive(d)
 	catalogue := &fakeCatalogue{ids: make(map[string]string), details: make(map[string]domain.MovieDetail), cover: fixtureJPEG(t, 600, 400)}
 	discover.javdb = catalogue
-	library := NewLibraryService(store.Client, pan, taskSvc, images)
+	library := NewLibraryService(store.Client, d, taskSvc, images)
 	scrape := NewScrapeService(library, discover, images)
 	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScan, library.Scan, library.Finished))
 	taskSvc.Registry().Register(tasks.NewHandler(tasks.KindScrape, scrape.Scrape, scrape.Finished))

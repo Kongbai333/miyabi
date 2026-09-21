@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/netx"
@@ -93,6 +94,7 @@ type catalogueClient interface {
 // DiscoverService combines JavDB catalogue data with Miyabi's local state.
 type DiscoverService struct {
 	database *ent.Client
+	drive    *drive.Drive
 	javdb    catalogueClient
 	lists    *responseCache[[]domain.Movie]
 	details  *responseCache[domain.MovieDetail]
@@ -103,6 +105,10 @@ type DiscoverService struct {
 	route   JavDBRouteStatus
 
 	viewedMu sync.Mutex
+}
+
+func (service *DiscoverService) SetDrive(d *drive.Drive) {
+	service.drive = d
 }
 
 // NewDiscoverService creates the lazy JavDB client and persists a stable

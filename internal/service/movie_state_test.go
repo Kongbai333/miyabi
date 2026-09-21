@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/ent/file"
-	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	"github.com/ppxb/miyabi/internal/pan"
 )
@@ -16,7 +15,7 @@ func TestMovieStatesFollowDownloadThroughIndexingWithoutCatalogueRequests(t *tes
 	offline, record, input, source := offlineFixture(t)
 	ctx := t.Context()
 	// No JavDB client: state reads must remain entirely local.
-	discover := &DiscoverService{database: offline.database}
+	discover := &DiscoverService{database: offline.database, drive: offline.drive}
 	identity := []MovieIdentity{{ID: input.JavDBID, Code: input.Code}}
 	assertState := func(want MovieState, libraryID int) {
 		t.Helper()
@@ -27,11 +26,15 @@ func TestMovieStatesFollowDownloadThroughIndexingWithoutCatalogueRequests(t *tes
 		}
 	}
 	assertState(MovieSaving, 0)
-	if err := offline.updateTask(ctx, record, pan.OfflineTask{Status: 2}, offline.drive.snapshot()); err != nil {
+	sess, err := offline.drive.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := offline.updateTask(ctx, sess, record, pan.OfflineTask{Status: 2}); err != nil {
 		t.Fatal(err)
 	}
 	assertState(MovieProcessing, 0)
-	if err := offline.updateTask(ctx, record, pan.OfflineTask{Status: 2, FileID: "download-folder"}, offline.drive.snapshot()); err != nil {
+	if err := offline.updateTask(ctx, sess, record, pan.OfflineTask{Status: 2, FileID: "download-folder"}); err != nil {
 		t.Fatal(err)
 	}
 	assertState(MovieProcessing, 0)
@@ -89,7 +92,7 @@ func TestMovieStatesFollowDownloadThroughIndexingWithoutCatalogueRequests(t *tes
 func TestMovieStatesScopePendingWorkToTheMountedAccountAndRoot(t *testing.T) {
 	offline, record, input, source := offlineFixture(t)
 	ctx := t.Context()
-	discover := &DiscoverService{database: offline.database}
+	discover := &DiscoverService{database: offline.database, drive: offline.drive}
 	// A completed download may await scan creation after its mount returns.
 	input.FileID = "download-folder"
 	encoded, err := tasks.EncodePayload(input)
@@ -106,9 +109,9 @@ func TestMovieStatesScopePendingWorkToTheMountedAccountAndRoot(t *testing.T) {
 		{"other root", source.AccountID, "another-root", MovieNotInLibrary},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			if err := saveSetting(ctx, offline.database, panDirectorySetting, panLibraryDirectory{
-				AccountID: scenario.accountID, LibraryDirectory: domain.LibraryDirectory{ID: scenario.directoryID},
-			}); err != nil {
+			if err := offline.drive.MountSource(ctx, domain.LibrarySource{
+				AccountID: scenario.accountID, Directory: domain.LibraryDirectory{ID: scenario.directoryID},
+			}, pan.Tokens{AccessToken: "token"}); err != nil {
 				t.Fatal(err)
 			}
 			states, err := discover.MovieStates(ctx, []MovieIdentity{{ID: input.JavDBID, Code: input.Code}})
@@ -117,7 +120,9 @@ func TestMovieStatesScopePendingWorkToTheMountedAccountAndRoot(t *testing.T) {
 			}
 		})
 	}
-	offline.database.Setting.Delete().Where(setting.Key(panDirectorySetting)).ExecX(ctx)
+	if err := offline.drive.ClearDirectory(ctx); err != nil {
+		t.Fatal(err)
+	}
 	states, err := discover.MovieStates(ctx, []MovieIdentity{{ID: input.JavDBID, Code: input.Code}})
 	if err != nil || len(states) != 1 || states[0].State != MovieNotInLibrary {
 		t.Fatalf("unmounted state: %+v err=%v", states, err)

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent/monitor"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/task"
@@ -192,9 +193,9 @@ type goldenPan struct {
 	PanManager
 }
 
-func (goldenPan) Account(context.Context) (service.PanAccountStatus, error) {
+func (goldenPan) Account(context.Context) (drive.AccountStatus, error) {
 	directory := goldenSource().Directory
-	return service.PanAccountStatus{Connected: true, Directory: &directory, Account: &pan.Account{
+	return drive.AccountStatus{Connected: true, Directory: &directory, Account: &pan.Account{
 		ID: "100", Name: "fixture", Avatar: "https://avatar.example/100.png", Level: "vip",
 		Space: pan.AccountSpace{Total: pan.SpaceAmount{Bytes: 1 << 40, Formatted: "1TB"}, Used: pan.SpaceAmount{Bytes: 1 << 30, Formatted: "1GB"}, Remaining: pan.SpaceAmount{Bytes: (1 << 40) - (1 << 30), Formatted: "1023GB"}},
 	}}, nil

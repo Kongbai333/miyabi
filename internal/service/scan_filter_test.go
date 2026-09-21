@@ -7,6 +7,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
@@ -16,7 +17,7 @@ import (
 )
 
 type scanMetadataClient struct {
-	panClient
+	drive.Client
 	bodies map[string][]byte
 	reads  int
 }
@@ -35,7 +36,7 @@ func (client *scanMetadataClient) ReadMetadata(_ context.Context, _, pickCode st
 func TestRescanRepairsAuxiliaryVideosAndSSNISubtitleAlias(t *testing.T) {
 	library, client := panConcurrencyFixture(t)
 	ctx := t.Context()
-	source := library.drive.snapshot().source()
+	source := *library.drive.Source()
 	records := []struct {
 		path, code string
 		size       int64
@@ -106,8 +107,8 @@ func TestRescanRepairsAuxiliaryVideosAndSSNISubtitleAlias(t *testing.T) {
 		}
 		return pan.FilePage{Files: entries[id], Total: len(entries[id]), Path: []pan.Directory{{ID: source.Directory.ID}}}, nil
 	}
-	metadata := &scanMetadataClient{panClient: client}
-	library.drive.client = metadata
+	metadata := &scanMetadataClient{Client: client}
+	library.drive.SetClient(metadata)
 	queued := library.database.Task.Query().Where(task.TypeEQ("scan")).OnlyX(ctx)
 	if err := library.Scan(ctx, tasks.Job{ID: queued.ID, Payload: queued.Payload}); err != nil {
 		t.Fatal(err)
@@ -147,7 +148,7 @@ func TestRescanRepairsAuxiliaryVideosAndSSNISubtitleAlias(t *testing.T) {
 func TestNFOIdentifiesOnlyEligibleVideosAndSmallFilesDoNotMakeDirectoryShared(t *testing.T) {
 	library, client := panConcurrencyFixture(t)
 	ctx := t.Context()
-	source := library.drive.snapshot().source()
+	source := *library.drive.Source()
 	body, err := nfo.Encode(nfo.Movie{Code: "ABP-001", Title: "Fixture"})
 	if err != nil {
 		t.Fatal(err)
@@ -162,8 +163,8 @@ func TestNFOIdentifiesOnlyEligibleVideosAndSmallFilesDoNotMakeDirectoryShared(t 
 	client.list = func(context.Context, string, string, int, int) (pan.FilePage, error) {
 		return pan.FilePage{Files: entries, Total: len(entries), Path: []pan.Directory{{ID: "10"}}}, nil
 	}
-	metadata := &scanMetadataClient{panClient: client, bodies: map[string][]byte{"nfo": body}}
-	library.drive.client = metadata
+	metadata := &scanMetadataClient{Client: client, bodies: map[string][]byte{"nfo": body}}
+	library.drive.SetClient(metadata)
 	queued := library.database.Task.Query().Where(task.TypeEQ("scan")).OnlyX(ctx)
 	if err := library.Scan(ctx, tasks.Job{ID: queued.ID, Payload: queued.Payload}); err != nil {
 		t.Fatal(err)
@@ -174,7 +175,11 @@ func TestNFOIdentifiesOnlyEligibleVideosAndSmallFilesDoNotMakeDirectoryShared(t 
 		t.Fatal("NFO inference did not distinguish the feature from its auxiliary file")
 	}
 	scrape := NewScrapeService(library, nil, library.images)
-	directories, err := scrape.directories(ctx, metadataPayload{Source: source, MovieID: film.ID}, library.drive.snapshot().authorizationVersion)
+	sess, err := library.drive.OpenSource(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directories, err := scrape.directories(ctx, sess, metadataPayload{Source: source, MovieID: film.ID})
 	if err != nil || len(directories) != 1 || directories[0].Shared {
 		t.Fatalf("small video blocked reuse of the movie NFO: %+v err=%v", directories, err)
 	}

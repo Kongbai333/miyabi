@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/pan"
 )
 
@@ -22,51 +23,35 @@ func fileInfoPath(info pan.FileInfo) string {
 }
 
 func withinSource(info pan.FileInfo, source domain.LibrarySource) bool {
-	return info.ID == source.Directory.ID || source.Directory.ID == "0" ||
-		slices.ContainsFunc(info.Path, func(dir pan.Directory) bool { return dir.ID == source.Directory.ID })
+	return drive.WithinSource(info, source)
 }
 
-func (service *LibraryService) sourceInfo(ctx context.Context, source domain.LibrarySource, version uint64, id string) (pan.FileInfo, error) {
-	state, err := service.drive.sourceState(source, version)
+func (service *LibraryService) sourceInfo(ctx context.Context, sess drive.Session, id string) (pan.FileInfo, error) {
+	info, err := sess.Info(ctx, id)
 	if err != nil {
 		return pan.FileInfo{}, err
 	}
-	info, err := withPanSourceToken(ctx, service.drive, state, func(token string) (pan.FileInfo, error) {
-		return service.drive.client.Info(ctx, token, id)
-	})
-	if err != nil {
-		return pan.FileInfo{}, err
-	}
-	if err := service.checkScanSource(source, version); err != nil {
-		return pan.FileInfo{}, err
-	}
-	if !withinSource(info, source) {
+	if !withinSource(info, sess.Source()) {
 		return pan.FileInfo{}, domain.E(domain.KindNotFound, "下载资源已移出媒体目录", nil)
 	}
 	return info, nil
 }
 
-func (service *LibraryService) readSidecar(ctx context.Context, source domain.LibrarySource, version uint64, entry pan.File, limit int64) ([]byte, error) {
-	state, err := service.drive.sourceState(source, version)
-	if err != nil {
-		return nil, err
-	}
-	body, err := withPanSourceToken(ctx, service.drive, state, func(token string) ([]byte, error) {
-		return service.drive.client.ReadMetadata(ctx, token, entry.PickCode, limit)
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := service.checkScanSource(source, version); err != nil {
-		return nil, err
-	}
-	return body, nil
+func (service *LibraryService) readSidecar(ctx context.Context, sess drive.Session, entry pan.File, limit int64) ([]byte, error) {
+	return sess.Read(ctx, entry.PickCode, limit)
 }
 
-func (service *LibraryService) directoryEntries(ctx context.Context, source domain.LibrarySource, version uint64, id string) ([]pan.File, error) {
+func (service *LibraryService) directoryEntries(ctx context.Context, sess drive.Session, id string) ([]pan.File, error) {
 	var files []pan.File
-	err := walkFilePages(ctx, func(offset int) (pan.FilePage, error) {
-		return service.scanPage(ctx, source, version, id, offset)
+	err := drive.WalkFilePages(ctx, func(offset int) (pan.FilePage, error) {
+		page, err := sess.List(ctx, id, offset)
+		if err != nil {
+			return pan.FilePage{}, err
+		}
+		if !slices.ContainsFunc(page.Path, func(directory pan.Directory) bool { return directory.ID == sess.Source().Directory.ID }) {
+			return pan.FilePage{}, domain.E(domain.KindConflict, "该文件夹已移出媒体目录，请重新扫描", nil)
+		}
+		return page, nil
 	}, func(page pan.FilePage) (bool, error) {
 		files = append(files, page.Files...)
 		return true, nil

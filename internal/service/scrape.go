@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"github.com/ppxb/miyabi/internal/codeid"
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/file"
@@ -32,9 +33,9 @@ type metadataPayload struct {
 }
 
 type artworkOrigin struct {
-	NFO    pan.File `json:"nfo"`
-	Poster pan.File `json:"poster"`
-	Fanart pan.File `json:"fanart"`
+	NFO    pan.File
+	Poster pan.File
+	Fanart pan.File
 }
 
 type coverPayload struct {
@@ -49,8 +50,8 @@ type coverPayload struct {
 
 type movieDirectory struct {
 	ID       string
-	Files    []pan.File
 	VideoIDs map[string]bool
+	Files    []pan.File
 	Shared   bool
 }
 
@@ -65,16 +66,8 @@ func NewScrapeService(library *LibraryService, discover *DiscoverService, images
 	return &ScrapeService{library: library, discover: discover, images: images}
 }
 
-func (service *ScrapeService) begin(ctx context.Context, input metadataPayload) (uint64, error) {
-	state, err := service.library.drive.verifiedSource(ctx)
-	if err != nil {
-		return 0, err
-	}
-	source := state.source()
-	if source.AccountID != input.Source.AccountID || source.Directory.ID != input.Source.Directory.ID {
-		return 0, ErrSourceChanged
-	}
-	return state.authorizationVersion, nil
+func (service *ScrapeService) begin(ctx context.Context, input metadataPayload) (drive.Session, error) {
+	return service.library.drive.OpenSource(ctx, input.Source)
 }
 
 func (service *ScrapeService) Scrape(ctx context.Context, job tasks.Job) error {
@@ -93,7 +86,7 @@ func (service *ScrapeService) Scrape(ctx context.Context, job tasks.Job) error {
 	if queued {
 		return nil
 	}
-	version, err := service.begin(ctx, input)
+	sess, err := service.begin(ctx, input)
 	if err != nil {
 		return err
 	}
@@ -102,13 +95,13 @@ func (service *ScrapeService) Scrape(ctx context.Context, job tasks.Job) error {
 	if err != nil {
 		return fmt.Errorf("load indexed movie for metadata: %w", err)
 	}
-	directories, err := service.directories(ctx, input, version)
+	directories, err := service.directories(ctx, sess, input)
 	if err != nil {
 		return err
 	}
 	cover := coverPayload{metadataPayload: input, ScrapeTaskID: job.ID}
 	for _, directory := range directories {
-		doc, origin, found, err := service.directoryNFO(ctx, input, version, directory)
+		doc, origin, found, err := service.directoryNFO(ctx, sess, input, directory)
 		if err != nil {
 			return err
 		}
@@ -153,14 +146,7 @@ func (service *ScrapeService) Scrape(ctx context.Context, job tasks.Job) error {
 	if err != nil {
 		return err
 	}
-	if err := service.library.drive.commit.Lock(ctx); err != nil {
-		return err
-	}
-	defer service.library.drive.commit.Unlock()
-	if err := service.library.checkScanSource(input.Source, version); err != nil {
-		return err
-	}
-	if err := ent.WithTx(ctx, service.library.database, func(tx *ent.Tx) error {
+	if err := sess.Commit(ctx, func(tx *ent.Tx) error {
 		if err := saveMovieMetadata(ctx, tx, input.MovieID, cover.Document); err != nil {
 			return err
 		}
@@ -172,7 +158,7 @@ func (service *ScrapeService) Scrape(ctx context.Context, job tasks.Job) error {
 	return nil
 }
 
-func (service *ScrapeService) directories(ctx context.Context, input metadataPayload, version uint64) ([]movieDirectory, error) {
+func (service *ScrapeService) directories(ctx context.Context, sess drive.Session, input metadataPayload) ([]movieDirectory, error) {
 	files, err := service.library.database.File.Query().Where(libraryFiles(input.Source), file.MovieIDEQ(input.MovieID)).
 		Order(ent.Asc(file.FieldParentID), ent.Asc(file.FieldFileID)).All(ctx)
 	if err != nil {
@@ -194,7 +180,7 @@ func (service *ScrapeService) directories(ctx context.Context, input metadataPay
 	}
 	for i := range result {
 		directory := &result[i]
-		directory.Files, err = service.library.directoryEntries(ctx, input.Source, version, directory.ID)
+		directory.Files, err = service.library.directoryEntries(ctx, sess, directory.ID)
 		if err != nil {
 			return nil, fmt.Errorf("read metadata directory: %w", err)
 		}
@@ -256,12 +242,12 @@ func findNFO[T any](code string, shared bool, files []T, name func(T) string) (T
 	return zero, false
 }
 
-func (service *ScrapeService) directoryNFO(ctx context.Context, input metadataPayload, version uint64, directory movieDirectory) (nfo.Movie, *artworkOrigin, bool, error) {
+func (service *ScrapeService) directoryNFO(ctx context.Context, sess drive.Session, input metadataPayload, directory movieDirectory) (nfo.Movie, *artworkOrigin, bool, error) {
 	entry, found := findDirectoryNFO(input.Code, directory)
 	if !found {
 		return nfo.Movie{}, nil, false, nil
 	}
-	body, err := service.library.readSidecar(ctx, input.Source, version, entry, 2<<20)
+	body, err := service.library.readSidecar(ctx, sess, entry, 2<<20)
 	if err != nil {
 		return nfo.Movie{}, nil, false, fmt.Errorf("read %s: %w", entry.Name, err)
 	}

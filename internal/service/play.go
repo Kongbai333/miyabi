@@ -11,12 +11,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/watchhistory"
 	"github.com/ppxb/miyabi/internal/pan"
 )
+
 
 type PlayFiles struct {
 	Code   string            `json:"code"`
@@ -64,10 +66,7 @@ func NewPlayService(library *LibraryService) *PlayService {
 }
 
 func (service *PlayService) Files(ctx context.Context, movieID int) (PlayFiles, error) {
-	source, err := loadLibrarySource(ctx, service.library.database)
-	if err != nil {
-		return PlayFiles{}, err
-	}
+	source := service.library.drive.Source()
 	if source == nil {
 		return PlayFiles{}, ErrMediaDirectoryRequired
 	}
@@ -98,44 +97,30 @@ func (service *PlayService) Files(ctx context.Context, movieID int) (PlayFiles, 
 }
 
 func (service *PlayService) Start(ctx context.Context, fileID string) (Playback, error) {
-	drive := service.library.drive
-	state, err := drive.verifiedSource(ctx)
+	sess, err := service.library.drive.Open(ctx)
 	if err != nil {
 		return Playback{}, err
 	}
-	source := state.source()
+	source := sess.Source()
 	_, err = service.library.database.File.Query().Where(libraryFiles(source), file.FileIDEQ(fileID)).Only(ctx)
 	if err != nil {
 		return Playback{}, fmt.Errorf("read indexed video: %w", err)
 	}
-	info, err := withPanSourceToken(ctx, drive, state, func(token string) (pan.FileInfo, error) {
-		return drive.client.Info(ctx, token, fileID)
-	})
+	info, err := sess.Info(ctx, fileID)
 	if err != nil {
 		return Playback{}, fmt.Errorf("read 115 video: %w", err)
 	}
-	if info.IsDirectory || !isVideo(info.Name) || !withinSource(info, source) {
+	if info.IsDirectory || !isVideo(info.Name) || !drive.WithinSource(info, source) {
 		return Playback{}, domain.E(domain.KindNotFound, "视频已不在当前媒体目录中，请重新扫描", fs.ErrNotExist)
 	}
 	if info.PickCode == "" {
 		return Playback{}, fmt.Errorf("115 returned no pick code for video")
 	}
-	if err := service.library.checkScanSource(source, state.authorizationVersion); err != nil {
-		return Playback{}, err
-	}
-	sources, err := withPanSourceToken(ctx, drive, state, func(token string) ([]pan.PlaySource, error) {
-		return drive.client.PlayURL(ctx, token, info.PickCode)
-	})
+	sources, err := sess.PlayURL(ctx, info.PickCode)
 	if err != nil {
 		return Playback{}, fmt.Errorf("get 115 playback URL: %w", err)
 	}
-	if err := ctx.Err(); err != nil {
-		return Playback{}, err
-	}
-	if err := service.library.checkScanSource(source, state.authorizationVersion); err != nil {
-		return Playback{}, err
-	}
-	return service.createSession(source, state.authorizationVersion, sources)
+	return service.createSession(source, sess.Version(), sources)
 }
 
 func (service *PlayService) createSession(source domain.LibrarySource, version uint64, sources []pan.PlaySource) (Playback, error) {
@@ -213,9 +198,7 @@ func (service *PlayService) resource(id string, index int) (*playSession, playRe
 	resource := session.resources[index]
 	service.mu.Unlock()
 
-	state := service.library.drive.snapshot()
-	valid := !state.closed && state.matchesSource(session.source, session.version) && state.tokens.AccessToken != ""
-	if !valid {
+	if !service.library.drive.ValidateSource(session.source, session.version) {
 		service.Release(id)
 		return nil, playResource{}, domain.E(domain.KindNotFound, "登录账号或媒体目录已变更，请重新播放", fs.ErrNotExist)
 	}

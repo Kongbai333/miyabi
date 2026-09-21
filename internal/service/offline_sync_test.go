@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ppxb/miyabi/internal/tasks"
 	"strings"
 	"testing"
 
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 func TestOfflineSyncContinuesPastIndividualFailures(t *testing.T) {
@@ -32,9 +32,8 @@ func TestOfflineSyncContinuesPastIndividualFailures(t *testing.T) {
 		records = append(records, service.database.Task.Create().SetType("offline").
 			SetStatus(status).SetPayload(encoded).SaveX(ctx))
 	}
-	service.drive.tokens = panTestTokens("sync")
 	fetched := 0
-	service.drive.client = &panStub{
+	service.drive.SetClient(&panStub{
 		account: func(context.Context, string) (pan.Account, error) { return pan.Account{ID: source.AccountID}, nil },
 		offlineTasks: func(_ context.Context, _ string, page int) (pan.OfflinePage, error) {
 			fetched++
@@ -49,7 +48,7 @@ func TestOfflineSyncContinuesPastIndividualFailures(t *testing.T) {
 				{Hash: "download-3", Status: 1, Progress: 65},
 			}}, nil
 		},
-	}
+	})
 	err := service.Sync(ctx)
 	if err == nil || !strings.Contains(err.Error(), "unknown offline status 99") {
 		t.Fatalf("individual sync failure was lost: %v", err)
@@ -77,9 +76,8 @@ func TestOfflineSyncContinuesPastIndividualFailures(t *testing.T) {
 
 func TestOfflineSyncKeepsUnseenTasksWhenLaterPageFails(t *testing.T) {
 	service, record, _, source := offlineFixture(t)
-	service.drive.tokens = panTestTokens("sync")
 	pageError := errors.New("fixture page unavailable")
-	service.drive.client = &panStub{
+	service.drive.SetClient(&panStub{
 		account: func(context.Context, string) (pan.Account, error) { return pan.Account{ID: source.AccountID}, nil },
 		offlineTasks: func(_ context.Context, _ string, page int) (pan.OfflinePage, error) {
 			if page == 1 {
@@ -87,7 +85,7 @@ func TestOfflineSyncKeepsUnseenTasksWhenLaterPageFails(t *testing.T) {
 			}
 			return pan.OfflinePage{}, pageError
 		},
-	}
+	})
 	if err := service.Sync(t.Context()); !errors.Is(err, pageError) {
 		t.Fatalf("page failure = %v", err)
 	}
@@ -100,16 +98,15 @@ func TestOfflineSyncKeepsUnseenTasksWhenLaterPageFails(t *testing.T) {
 func TestOfflineCompletionWaitsForLocationAcrossRestart(t *testing.T) {
 	service, record, input, source := offlineFixture(t)
 	ctx := t.Context()
-	service.drive.tokens = panTestTokens("sync")
 	fileID := ""
-	service.drive.client = &panStub{
+	service.drive.SetClient(&panStub{
 		account: func(context.Context, string) (pan.Account, error) { return pan.Account{ID: source.AccountID}, nil },
 		offlineTasks: func(context.Context, string, int) (pan.OfflinePage, error) {
 			return pan.OfflinePage{PageCount: 1, Tasks: []pan.OfflineTask{
 				{Hash: input.InfoHash, Status: 2, Progress: 100, FileID: fileID},
 			}}, nil
 		},
-	}
+	})
 	if err := service.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -117,21 +114,41 @@ func TestOfflineCompletionWaitsForLocationAcrossRestart(t *testing.T) {
 	if current.Status != task.StatusDone || current.Progress != 100 {
 		t.Fatalf("remote completion was not persisted: %+v", current)
 	}
-	before := service.tasks.Revisions()
+	notifications, cancel := service.tasks.Subscribe()
+	defer cancel()
+	before := service.tasks.Revisions().Offline
 	if err := service.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if after := service.tasks.Revisions(); after != before {
+	after := service.tasks.Revisions().Offline
+	if after != before {
+		t.Fatalf("unchanged pending completion bumped revisions: before=%d after=%d", before, after)
+	}
+	select {
+	case <-notifications:
+		t.Fatal("unchanged pending completion published an event")
+	default:
+	}
+	activity, err := service.Activity(ctx)
+	if err != nil || len(activity.Tasks) != 1 || activity.Tasks[0].Phase != "processing" ||
+		!activity.Tasks[0].Processing || activity.Tasks[0].ScanTaskID != 0 {
+		t.Fatalf("pending completion activity = %+v, %v", activity, err)
+	}
+	if after := service.tasks.Revisions().Offline; after != before {
 		t.Fatalf("unchanged pending completion was announced again: %+v", after)
 	}
 	service = NewOfflineService(service.database, nil, service.drive, tasks.NewService(service.database, tasks.NewRegistry()))
-	activity, err := service.Activity(ctx)
+	activity, err = service.Activity(ctx)
 	if err != nil || len(activity.Tasks) != 1 || activity.Tasks[0].Phase != "processing" ||
 		!activity.Tasks[0].Processing || activity.Tasks[0].ScanTaskID != 0 {
 		t.Fatalf("restart restored completed download as downloading: %+v, %v", activity, err)
 	}
+	sess, err := service.drive.OpenSource(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// A stale running result must not revert a saved remote completion.
-	if err := service.updateTask(ctx, record, pan.OfflineTask{Status: 1, Progress: 40}, service.drive.snapshot()); err != nil {
+	if err := service.updateTask(ctx, sess, record, pan.OfflineTask{Status: 1, Progress: 40}); err != nil {
 		t.Fatal(err)
 	}
 	fileID = "download-folder"
@@ -170,18 +187,21 @@ func TestOfflineCompletionWaitsForLocationAcrossRestart(t *testing.T) {
 func TestOfflineMissingLocationStopsPendingWorkflow(t *testing.T) {
 	service, record, _, source := offlineFixture(t)
 	ctx := t.Context()
-	if err := service.updateTask(ctx, record, pan.OfflineTask{Status: 2}, service.drive.snapshot()); err != nil {
+	sess, err := service.drive.OpenSource(ctx, source)
+	if err != nil {
 		t.Fatal(err)
 	}
-	service.drive.tokens = panTestTokens("sync")
+	if err := service.updateTask(ctx, sess, record, pan.OfflineTask{Status: 2}); err != nil {
+		t.Fatal(err)
+	}
 	fetched := 0
-	service.drive.client = &panStub{
+	service.drive.SetClient(&panStub{
 		account: func(context.Context, string) (pan.Account, error) { return pan.Account{ID: source.AccountID}, nil },
 		offlineTasks: func(context.Context, string, int) (pan.OfflinePage, error) {
 			fetched++
 			return pan.OfflinePage{PageCount: 1}, nil
 		},
-	}
+	})
 	if err := service.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -203,12 +223,16 @@ func TestOfflineMissingLocationStopsPendingWorkflow(t *testing.T) {
 }
 
 func TestOfflineProgressPublishesChanges(t *testing.T) {
-	service, record, _, _ := offlineFixture(t)
+	service, record, _, source := offlineFixture(t)
+	sess, err := service.drive.OpenSource(t.Context(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	updates, unsubscribe := service.tasks.Subscribe()
 	defer unsubscribe()
 	before := service.tasks.Revisions()
 	remote := pan.OfflineTask{Status: 1, Progress: 45}
-	if err := service.updateTask(t.Context(), record, remote, service.drive.snapshot()); err != nil {
+	if err := service.updateTask(t.Context(), sess, record, remote); err != nil {
 		t.Fatal(err)
 	}
 	if after := service.tasks.Revisions(); after.Offline != before.Offline+1 {
@@ -219,7 +243,7 @@ func TestOfflineProgressPublishesChanges(t *testing.T) {
 	default:
 		t.Fatal("new progress did not wake the event stream")
 	}
-	if err := service.updateTask(t.Context(), record, remote, service.drive.snapshot()); err != nil {
+	if err := service.updateTask(t.Context(), sess, record, remote); err != nil {
 		t.Fatal(err)
 	}
 	if after := service.tasks.Revisions(); after.Offline != before.Offline+1 {

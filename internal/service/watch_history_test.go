@@ -15,6 +15,7 @@ import (
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/watchhistory"
+	"github.com/ppxb/miyabi/internal/pan"
 )
 
 func historyFilm(t *testing.T, library *LibraryService, source domain.LibrarySource, code string) (*ent.Movie, *ent.File) {
@@ -60,7 +61,7 @@ func TestWatchHistoryPaginatesRecentMoviesWithBoundedScopedQueries(t *testing.T)
 	if page.Items[0].Code != "ABP-022" || page.Items[0].Position != 22 || page.Items[0].Duration != 100 || page.Items[19].Code != "ABP-003" {
 		t.Fatalf("history lost progress or recent order: %+v", page.Items)
 	}
-	want := map[string]int{"*ent.SettingQuery": 1, "*ent.WatchHistoryQuery": 2, "*ent.MovieQuery": 1}
+	want := map[string]int{"*ent.WatchHistoryQuery": 2, "*ent.MovieQuery": 1}
 	if !reflect.DeepEqual(queries, want) {
 		t.Fatalf("history loaded redundant data: %v", queries)
 	}
@@ -72,7 +73,9 @@ func TestWatchHistoryPaginatesRecentMoviesWithBoundedScopedQueries(t *testing.T)
 	if err != nil || len(page.Items) != 0 || page.Total != 23 || page.Items == nil {
 		t.Fatalf("out-of-range page lost its total or empty array: %+v, %v", page, err)
 	}
-	library.database.Setting.Delete().ExecX(ctx)
+	if err := library.drive.ClearDirectory(ctx); err != nil {
+		t.Fatal(err)
+	}
 	page, err = library.WatchHistory(ctx, 1)
 	if err != nil || page.Source != nil || page.Total != 0 || page.Items == nil || len(page.Items) != 0 {
 		t.Fatalf("unmounted history must be empty: %+v, %v", page, err)
@@ -154,9 +157,9 @@ func TestWatchProgressValidatesFilesNumbersAndMountedSource(t *testing.T) {
 		t.Fatalf("a file from another movie was accepted: %v", err)
 	}
 	progress.FileID = video.FileID
-	if err := saveSetting(ctx, library.database, panDirectorySetting, panLibraryDirectory{
-		AccountID: "other", LibraryDirectory: payload.Source.Directory,
-	}); err != nil {
+	if err := library.drive.MountSource(ctx, domain.LibrarySource{
+		AccountID: "other", Directory: payload.Source.Directory,
+	}, pan.Tokens{AccessToken: "token"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := library.SaveWatchProgress(ctx, session.ID, progress); !ent.IsNotFound(err) {

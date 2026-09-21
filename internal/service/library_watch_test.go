@@ -78,7 +78,9 @@ func TestMarkWatchedRequiresAMovieInTheMountedSource(t *testing.T) {
 	if _, err := library.MarkWatched(ctx, 99999, testWatchScope(payload.Source)); !ent.IsNotFound(err) {
 		t.Fatalf("missing movie was accepted: %v", err)
 	}
-	library.database.Setting.Delete().ExecX(ctx)
+	if err := library.drive.ClearDirectory(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := library.MarkWatched(ctx, 1, testWatchScope(payload.Source)); !errors.Is(err, ErrMediaDirectoryRequired) {
 		t.Fatalf("unmounted library was accepted: %v", err)
 	}

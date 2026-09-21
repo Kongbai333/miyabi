@@ -2,19 +2,19 @@ package api
 
 import (
 	"context"
-	"github.com/ppxb/miyabi/internal/domain"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/pan"
-	"github.com/ppxb/miyabi/internal/service"
 )
 
 type PanManager interface {
-	Account(context.Context) (service.PanAccountStatus, error)
-	BeginLogin(context.Context) (service.PanLoginSession, error)
-	LoginStatus(context.Context, string) (service.PanLoginStatus, error)
-	Disconnect(context.Context) (service.PanAccountStatus, error)
+	Account(context.Context) (drive.AccountStatus, error)
+	BeginLogin(context.Context) (drive.LoginSession, error)
+	LoginStatus(context.Context, string) (drive.LoginStatus, error)
+	Disconnect(context.Context) (drive.AccountStatus, error)
 	Files(context.Context, string, int) (pan.FilePage, error)
 	SelectDirectory(context.Context, string) (domain.LibraryDirectory, error)
 	ClearDirectory(context.Context) error

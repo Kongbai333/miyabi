@@ -3,11 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"github.com/ppxb/miyabi/internal/tasks"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/actor"
 	"github.com/ppxb/miyabi/internal/ent/file"
@@ -15,7 +15,19 @@ import (
 	"github.com/ppxb/miyabi/internal/ent/predicate"
 	"github.com/ppxb/miyabi/internal/ent/tag"
 	mediaimage "github.com/ppxb/miyabi/internal/image"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
+
+type LibraryEntity struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+}
+
+type LibraryTag struct {
+	ID      int    `json:"id"`
+	JavDBID string `json:"javdb_id"`
+	Name    string `json:"name"`
+}
 
 type LibraryMovie struct {
 	ID           int                `json:"id"`
@@ -37,17 +49,6 @@ type LibraryMovie struct {
 	Watched      bool               `json:"watched"`
 }
 
-type LibraryTag struct {
-	ID      int    `json:"id"`
-	JavDBID string `json:"javdb_id"`
-	Name    string `json:"name"`
-}
-
-type LibraryEntity struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name"`
-}
-
 type LibraryPage struct {
 	Source  *domain.LibrarySource `json:"source,omitempty"`
 	Movies  []LibraryMovie        `json:"movies"`
@@ -66,22 +67,22 @@ type LibraryFile struct {
 type LibraryService struct {
 	images   *mediaimage.Cache
 	database *ent.Client
-	drive    *PanService
+	drive    *drive.Drive
 	tasks    *tasks.Service
 }
 
-func NewLibraryService(database *ent.Client, drive *PanService, tasks *tasks.Service, images *mediaimage.Cache) *LibraryService {
-	return &LibraryService{database: database, drive: drive, tasks: tasks, images: images}
-}
-
-// Browsing an existing index only reads SQLite. 115 is contacted when scanning,
-// not on each visit to the library or while paging through indexed movies.
-func loadLibrarySource(ctx context.Context, database *ent.Client) (*domain.LibrarySource, error) {
-	directory, found, err := loadSetting[panLibraryDirectory](ctx, database, panDirectorySetting)
-	if err != nil || !found {
-		return nil, err
+func NewLibraryService(database *ent.Client, d *drive.Drive, tasks *tasks.Service, images *mediaimage.Cache) *LibraryService {
+	svc := &LibraryService{database: database, drive: d, tasks: tasks, images: images}
+	if d != nil {
+		d.SubscribeMount(func(ctx context.Context, event drive.MountEvent) error {
+			if event.Source.Directory.ID != "" && tasks != nil {
+				_, err := tasks.EnqueueScan(ctx, event.Source)
+				return err
+			}
+			return nil
+		})
 	}
-	return &domain.LibrarySource{AccountID: directory.AccountID, Directory: directory.LibraryDirectory}, nil
+	return svc
 }
 
 func libraryFiles(source domain.LibrarySource) predicate.File {
@@ -90,15 +91,13 @@ func libraryFiles(source domain.LibrarySource) predicate.File {
 
 func (service *LibraryService) Movies(ctx context.Context, page, limit int) (LibraryPage, error) {
 	result := LibraryPage{Movies: []LibraryMovie{}, Page: page}
-	source, err := loadLibrarySource(ctx, service.database)
-	if err != nil {
-		return result, err
-	}
+	source := service.drive.Source()
 	if source == nil {
 		return result, nil
 	}
 	result.Source = source
 	scope := libraryFiles(*source)
+	var err error
 	result.Total, err = service.database.File.Query().Where(scope).Aggregate(func(s *sql.Selector) string {
 		return sql.As("COUNT(DISTINCT "+s.C(file.FieldMovieID)+")", "total")
 	}).Int(ctx)

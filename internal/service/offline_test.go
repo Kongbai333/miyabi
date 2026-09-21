@@ -1,25 +1,37 @@
 package service
 
 import (
+	"context"
 	"errors"
-	"github.com/ppxb/miyabi/internal/domain"
-	"github.com/ppxb/miyabi/internal/tasks"
 	"testing"
 
+	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 func offlineFixture(t *testing.T) (*OfflineService, *ent.Task, offlinePayload, domain.LibrarySource) {
 	t.Helper()
 	library, _, scan := libraryFixture(t)
-	drive := &PanService{tasks: library.tasks, tokens: pan.Tokens{AccessToken: "fixture-token"}, directory: panLibraryDirectory{
-		AccountID: scan.Source.AccountID, LibraryDirectory: scan.Source.Directory,
-	}}
-	service := NewOfflineService(library.database, nil, drive, library.tasks)
+	client := &panStub{
+		account: func(context.Context, string) (pan.Account, error) {
+			return pan.Account{ID: scan.Source.AccountID}, nil
+		},
+	}
+	d, err := drive.NewWithClient(t.Context(), library.database, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MountSource(t.Context(), scan.Source, pan.Tokens{AccessToken: "fixture-token"}); err != nil {
+		t.Fatal(err)
+	}
+	library.drive = d
+	service := NewOfflineService(library.database, nil, d, library.tasks)
 	input := offlinePayload{AccountID: scan.Source.AccountID, DirectoryID: scan.Source.Directory.ID,
 		Code: "ABP-001", JavDBID: "fixture-movie", Hash: "fixture-hash", InfoHash: "fixture-hash"}
 	encoded, err := tasks.EncodePayload(input)
@@ -79,9 +91,13 @@ func TestOfflineProjectionUsesMovieIdentityAndExposesPlaybackID(t *testing.T) {
 func TestOfflineCompletionAndTargetedScanCommitTogether(t *testing.T) {
 	service, record, input, source := offlineFixture(t)
 	ctx := t.Context()
+	sess, err := service.drive.OpenSource(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	rollback := errors.New("fixture rollback")
-	err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
-		if err := service.completeTask(ctx, tx, record, input, "download-folder", service.drive.snapshot()); err != nil {
+	err = ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
+		if err := service.completeTask(ctx, tx, record, input, "download-folder", sess); err != nil {
 			return err
 		}
 		return rollback
@@ -99,7 +115,7 @@ func TestOfflineCompletionAndTargetedScanCommitTogether(t *testing.T) {
 	if count, err := service.database.Task.Query().Where(task.TypeEQ("scan")).Count(ctx); err != nil || count != 1 {
 		t.Fatalf("scan escaped rollback: count=%d err=%v", count, err)
 	}
-	if err := service.updateTask(ctx, record, pan.OfflineTask{Status: 2, FileID: "download-folder"}, service.drive.snapshot()); err != nil {
+	if err := service.updateTask(ctx, sess, record, pan.OfflineTask{Status: 2, FileID: "download-folder"}); err != nil {
 		t.Fatal(err)
 	}
 	done, err := service.database.Task.Get(ctx, record.ID)
@@ -129,7 +145,7 @@ func TestOfflineCompletionAndTargetedScanCommitTogether(t *testing.T) {
 	if count, err := service.database.Task.Query().Where(task.TypeEQ("scan")).Count(ctx); err != nil || count != 2 {
 		t.Fatalf("targeted scan count=%d err=%v", count, err)
 	}
-	if err := service.updateTask(ctx, done, pan.OfflineTask{Status: 2, FileID: "download-folder"}, service.drive.snapshot()); err != nil {
+	if err := service.updateTask(ctx, sess, done, pan.OfflineTask{Status: 2, FileID: "download-folder"}); err != nil {
 		t.Fatal(err)
 	}
 	if count, err := service.database.Task.Query().Where(task.TypeEQ("scan")).Count(ctx); err != nil || count != 2 {
@@ -140,10 +156,14 @@ func TestOfflineCompletionAndTargetedScanCommitTogether(t *testing.T) {
 func TestOfflineActionDependsOnCurrentFilesRatherThanDownloadHistory(t *testing.T) {
 	service, record, _, source := offlineFixture(t)
 	ctx := t.Context()
-	if err := service.updateTask(ctx, record, pan.OfflineTask{Status: 2, FileID: "video-1"}, service.drive.snapshot()); err != nil {
+	sess, err := service.drive.OpenSource(ctx, source)
+	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := service.database.Task.Get(ctx, record.ID)
+	if err := service.updateTask(ctx, sess, record, pan.OfflineTask{Status: 2, FileID: "video-1"}); err != nil {
+		t.Fatal(err)
+	}
+	record, err = service.database.Task.Get(ctx, record.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,12 +214,20 @@ func TestOfflineActionDependsOnCurrentFilesRatherThanDownloadHistory(t *testing.
 }
 
 func TestCompletedOfflineTaskDefersScanForAnotherMount(t *testing.T) {
-	service, record, input, _ := offlineFixture(t)
-	service.drive.directory.ID = "another-root"
-	if err := service.updateTask(t.Context(), record, pan.OfflineTask{Status: 2, FileID: "download-folder"}, service.drive.snapshot()); err != nil {
+	service, record, input, source := offlineFixture(t)
+	sess, err := service.drive.OpenSource(t.Context(), source)
+	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := service.database.Task.Get(t.Context(), record.ID)
+	if err := service.drive.MountSource(t.Context(), domain.LibrarySource{
+		AccountID: source.AccountID, Directory: domain.LibraryDirectory{ID: "another-root"},
+	}, pan.Tokens{AccessToken: "fixture-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.updateTask(t.Context(), sess, record, pan.OfflineTask{Status: 2, FileID: "download-folder"}); err != nil {
+		t.Fatal(err)
+	}
+	record, err = service.database.Task.Get(t.Context(), record.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,9 +277,9 @@ func TestOfflineActivityKeepsLatestTasksInCurrentSource(t *testing.T) {
 		current.DirectoryID != source.Directory.ID || current.Phase != "downloading" {
 		t.Fatalf("latest task: %+v", current)
 	}
-	if err := saveSetting(ctx, service.database, panDirectorySetting, panLibraryDirectory{
-		AccountID: source.AccountID, LibraryDirectory: domain.LibraryDirectory{ID: "empty-root"},
-	}); err != nil {
+	if err := service.drive.MountSource(ctx, domain.LibrarySource{
+		AccountID: source.AccountID, Directory: domain.LibraryDirectory{ID: "empty-root"},
+	}, pan.Tokens{AccessToken: "fixture-token"}); err != nil {
 		t.Fatal(err)
 	}
 	activity, err = service.Activity(ctx)
@@ -263,10 +291,14 @@ func TestOfflineActivityKeepsLatestTasksInCurrentSource(t *testing.T) {
 func TestOfflineActivitySeparatesPlaybackFromArtworkAndRechecksFiles(t *testing.T) {
 	service, download, input, source := offlineFixture(t)
 	ctx := t.Context()
-	if err := service.updateTask(ctx, download, pan.OfflineTask{Status: 2, FileID: "download-folder"}, service.drive.snapshot()); err != nil {
+	sess, err := service.drive.OpenSource(ctx, source)
+	if err != nil {
 		t.Fatal(err)
 	}
-	download, err := service.database.Task.Get(ctx, download.ID)
+	if err := service.updateTask(ctx, sess, download, pan.OfflineTask{Status: 2, FileID: "download-folder"}); err != nil {
+		t.Fatal(err)
+	}
+	download, err = service.database.Task.Get(ctx, download.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

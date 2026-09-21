@@ -109,7 +109,7 @@ func TestOfflineStartedSubmissionKeepsOriginalSourceAfterCancellation(t *testing
 	for _, action := range []string{"disconnect", "directory"} {
 		t.Run(action, func(t *testing.T) {
 			service, client := offlineAddFixture(t)
-			source := service.drive.snapshot().source()
+			source := *service.drive.Source()
 			started := make(chan context.Context, 1)
 			hold, release := panTestGate(t)
 			client.addOffline = func(ctx context.Context, _, _, directory string) (string, error) {
@@ -154,8 +154,6 @@ func TestOfflineSyncRespectsSourceChangesDuringRemotePolling(t *testing.T) {
 	for _, action := range []string{"directory", "disconnect"} {
 		t.Run(action, func(t *testing.T) {
 			service, record, input, source := offlineFixture(t)
-			service.drive.database = service.database
-			service.drive.tokens = panTestTokens("sync")
 			started := make(chan struct{}, 1)
 			hold, release := panTestGate(t)
 			client := &panStub{
@@ -169,7 +167,7 @@ func TestOfflineSyncRespectsSourceChangesDuringRemotePolling(t *testing.T) {
 					return pan.OfflinePage{PageCount: 1, Tasks: []pan.OfflineTask{{Hash: input.InfoHash, Status: 2, FileID: "download-folder"}}}, nil
 				},
 			}
-			service.drive.client = client
+			service.drive.SetClient(client)
 			finished := make(chan error, 1)
 			go func() { finished <- service.Sync(t.Context()) }()
 			awaitPan(t, started)
@@ -212,12 +210,15 @@ func TestOfflineSyncRespectsSourceChangesDuringRemotePolling(t *testing.T) {
 }
 
 func TestOfflineStaleResultsPreserveCompletionAndNewerPayload(t *testing.T) {
-	service, record, _, _ := offlineFixture(t)
-	state := service.drive.snapshot()
+	service, record, _, source := offlineFixture(t)
+	sess, err := service.drive.OpenSource(t.Context(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	completed := pan.OfflineTask{Status: 2, FileID: "download-folder"}
 	finished := make(chan error, 2)
 	for range 2 {
-		go func() { finished <- service.updateTask(t.Context(), record, completed, state) }()
+		go func() { finished <- service.updateTask(t.Context(), sess, record, completed) }()
 	}
 	for range 2 {
 		if err := awaitPan(t, finished); err != nil {
@@ -236,11 +237,11 @@ func TestOfflineStaleResultsPreserveCompletionAndNewerPayload(t *testing.T) {
 	}
 	service.database.Task.UpdateOneID(record.ID).SetPayload(encoded).ExecX(t.Context())
 	for _, remote := range []pan.OfflineTask{{Status: 1, Progress: 20}, {Status: -1}, {Status: 2, FileID: "old-download-folder"}} {
-		if err := service.updateTask(t.Context(), record, remote, state); err != nil {
+		if err := service.updateTask(t.Context(), sess, record, remote); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := service.markMissing(t.Context(), record, state); err != nil {
+	if err := service.markMissing(t.Context(), sess, record); err != nil {
 		t.Fatal(err)
 	}
 	current = service.database.Task.GetX(t.Context(), record.ID)
@@ -294,7 +295,11 @@ func TestOfflineDuplicateHistoryPreservesRedownloadBehavior(t *testing.T) {
 func TestOfflinePlayableProcessingStillDeduplicatesUntilWorkflowFinishes(t *testing.T) {
 	service, client := offlineAddFixture(t)
 	ctx := t.Context()
-	source := service.drive.snapshot().source()
+	source := *service.drive.Source()
+	sess, err := service.drive.OpenSource(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	input := offlinePayload{AccountID: source.AccountID, DirectoryID: source.Directory.ID,
 		Code: "ABP-001", JavDBID: "fixture-movie", Hash: offlineHashA, InfoHash: offlineHashA}
 	encoded, err := tasks.EncodePayload(input)
@@ -302,7 +307,7 @@ func TestOfflinePlayableProcessingStillDeduplicatesUntilWorkflowFinishes(t *test
 		t.Fatal(err)
 	}
 	record := service.database.Task.Create().SetType("offline").SetStatus(task.StatusRunning).SetPayload(encoded).SaveX(ctx)
-	if err := service.updateTask(ctx, record, pan.OfflineTask{Status: 2, FileID: "download-folder"}, service.drive.snapshot()); err != nil {
+	if err := service.updateTask(ctx, sess, record, pan.OfflineTask{Status: 2, FileID: "download-folder"}); err != nil {
 		t.Fatal(err)
 	}
 	record = service.database.Task.GetX(ctx, record.ID)

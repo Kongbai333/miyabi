@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"github.com/ppxb/miyabi/internal/tasks"
 	"path"
 	"slices"
 	"strings"
@@ -12,11 +11,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/ppxb/miyabi/internal/codeid"
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent"
 	"github.com/ppxb/miyabi/internal/ent/file"
 	"github.com/ppxb/miyabi/internal/ent/movie"
 	"github.com/ppxb/miyabi/internal/nfo"
 	"github.com/ppxb/miyabi/internal/pan"
+	"github.com/ppxb/miyabi/internal/tasks"
 )
 
 type scanPayload struct {
@@ -66,18 +67,11 @@ func (service *LibraryService) identifyScanVideos(payload scanPayload, videos []
 }
 
 func (service *LibraryService) StartScan(ctx context.Context) (tasks.TaskInfo, error) {
-	state, err := service.drive.verifiedSource(ctx)
+	sess, err := service.drive.Open(ctx)
 	if err != nil {
 		return tasks.TaskInfo{}, err
 	}
-	if err := service.drive.commit.Lock(ctx); err != nil {
-		return tasks.TaskInfo{}, err
-	}
-	defer service.drive.commit.Unlock()
-	if err := service.checkScanSource(state.source(), state.authorizationVersion); err != nil {
-		return tasks.TaskInfo{}, err
-	}
-	return service.tasks.EnqueueScan(ctx, state.source())
+	return service.tasks.EnqueueScan(ctx, sess.Source())
 }
 
 func (service *LibraryService) Scan(ctx context.Context, job tasks.Job) error {
@@ -93,14 +87,11 @@ func (service *LibraryService) Scan(ctx context.Context, job tasks.Job) error {
 	if payload.Scan.Stage == "done" {
 		return nil
 	}
-	state, err := service.drive.verifiedSource(ctx)
+	sess, err := service.drive.OpenSource(ctx, payload.Source)
 	if err != nil {
 		return err
 	}
-	source, version := state.source(), state.authorizationVersion
-	if source.AccountID != payload.Source.AccountID || source.Directory.ID != payload.Source.Directory.ID {
-		return ErrSourceChanged
-	}
+	source := sess.Source()
 	// Each execution gets a fresh marker, including after a server restart. An
 	// interrupted attempt must not make unvisited files look present on retry.
 	scanID := uuid.NewString()
@@ -111,17 +102,17 @@ func (service *LibraryService) Scan(ctx context.Context, job tasks.Job) error {
 	start := scanDirectory{id: source.Directory.ID, path: source.Directory.Path}
 	observed := make(scanObservations)
 	savePage := func(directoryPath string, videos []scanVideo, prepare func([]scanVideo) []scanVideo) error {
-		return service.drive.commitSource(ctx, source, version, func() error {
-			return service.processScanPage(ctx, job.ID, scanID, directoryPath, videos, &payload, prepare)
+		return sess.Commit(ctx, func(tx *ent.Tx) error {
+			return service.processScanPageTx(ctx, tx, job.ID, scanID, directoryPath, videos, &payload, prepare)
 		})
 	}
 	reconcile := func() error {
-		return service.drive.commitSource(ctx, source, version, func() error {
-			return service.reconcileScan(ctx, job.ID, scanID, &payload, observed)
+		return sess.Commit(ctx, func(tx *ent.Tx) error {
+			return service.reconcileScanTx(ctx, tx, job.ID, scanID, &payload, observed)
 		})
 	}
 	if payload.TargetID != "" {
-		info, err := service.sourceInfo(ctx, source, version, payload.TargetID)
+		info, err := service.sourceInfo(ctx, sess, payload.TargetID)
 		if err != nil {
 			return fmt.Errorf("read completed download: %w", err)
 		}
@@ -145,7 +136,7 @@ func (service *LibraryService) Scan(ctx context.Context, job tasks.Job) error {
 			}); err != nil {
 				return err
 			}
-			entries, err := service.directoryEntries(ctx, source, version, info.ParentID)
+			entries, err := service.directoryEntries(ctx, sess, info.ParentID)
 			if err != nil {
 				return err
 			}
@@ -166,8 +157,15 @@ func (service *LibraryService) Scan(ctx context.Context, job tasks.Job) error {
 		var unidentified []scanVideo
 		var sidecars []pan.File
 		directoryCodes := make(map[string]bool)
-		err := walkFilePages(ctx, func(offset int) (pan.FilePage, error) {
-			return service.scanPage(ctx, source, version, directory.id, offset)
+		err := drive.WalkFilePages(ctx, func(offset int) (pan.FilePage, error) {
+			page, err := sess.List(ctx, directory.id, offset)
+			if err != nil {
+				return pan.FilePage{}, err
+			}
+			if !slices.ContainsFunc(page.Path, func(directory pan.Directory) bool { return directory.ID == source.Directory.ID }) {
+				return pan.FilePage{}, domain.E(domain.KindConflict, "该文件夹已移出媒体目录，请重新扫描", nil)
+			}
+			return page, nil
 		}, func(page pan.FilePage) (bool, error) {
 			videos := make([]scanVideo, 0, len(page.Files))
 			observed.add(directory.id, page.Files)
@@ -222,7 +220,7 @@ func (service *LibraryService) Scan(ctx context.Context, job tasks.Job) error {
 		if len(sidecars) == 1 && len(directoryCodes) <= 1 && slices.ContainsFunc(unidentified, func(video scanVideo) bool {
 			return canIdentifyVideo(video.File)
 		}) {
-			body, err := service.readSidecar(ctx, source, version, sidecars[0], 2<<20)
+			body, err := sess.Read(ctx, sidecars[0].PickCode, 2<<20)
 			if err != nil {
 				return fmt.Errorf("read scan NFO: %w", err)
 			}
@@ -262,31 +260,6 @@ func (service *LibraryService) Scan(ctx context.Context, job tasks.Job) error {
 	return reconcile()
 }
 
-func (service *LibraryService) checkScanSource(source domain.LibrarySource, version uint64) error {
-	_, err := service.drive.sourceState(source, version)
-	return err
-}
-
-func (service *LibraryService) scanPage(ctx context.Context, source domain.LibrarySource, version uint64, directoryID string, offset int) (pan.FilePage, error) {
-	state, err := service.drive.sourceState(source, version)
-	if err != nil {
-		return pan.FilePage{}, err
-	}
-	page, err := withPanSourceToken(ctx, service.drive, state, func(token string) (pan.FilePage, error) {
-		return service.drive.client.List(ctx, token, directoryID, offset, 100)
-	})
-	if err != nil {
-		return pan.FilePage{}, err
-	}
-	if err := service.checkScanSource(source, version); err != nil {
-		return pan.FilePage{}, err
-	}
-	if !slices.ContainsFunc(page.Path, func(directory pan.Directory) bool { return directory.ID == source.Directory.ID }) {
-		return pan.FilePage{}, domain.E(domain.KindConflict, "该文件夹已移出媒体目录，请重新扫描", nil)
-	}
-	return page, nil
-}
-
 func isVideo(name string) bool {
 	switch strings.ToLower(path.Ext(name)) {
 	case ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".m2ts", ".mts", ".mpg", ".mpeg", ".vob":
@@ -306,13 +279,21 @@ func (service *LibraryService) indexScanPage(ctx context.Context, taskID int, sc
 	return service.processScanPage(ctx, taskID, scanID, directoryPath, videos, payload, nil)
 }
 
+func (service *LibraryService) processScanPage(ctx context.Context, taskID int, scanID, directoryPath string, videos []scanVideo, payload *scanPayload, prepare func([]scanVideo) []scanVideo) error {
+	return service.processScanPageTx(ctx, nil, taskID, scanID, directoryPath, videos, payload, prepare)
+}
+
 // Read identities and write their file associations in the same transaction.
 // prepare accounts for identified videos and can defer unknown files until the
 // directory's NFO is available; deferred writes take their own fresh snapshot.
-func (service *LibraryService) processScanPage(ctx context.Context, taskID int, scanID, directoryPath string, videos []scanVideo, payload *scanPayload, prepare func([]scanVideo) []scanVideo) error {
+func (service *LibraryService) processScanPageTx(ctx context.Context, tx *ent.Tx, taskID int, scanID, directoryPath string, videos []scanVideo, payload *scanPayload, prepare func([]scanVideo) []scanVideo) error {
+	if tx == nil {
+		return ent.WithTx(ctx, service.database, func(innerTx *ent.Tx) error {
+			return service.processScanPageTx(ctx, innerTx, taskID, scanID, directoryPath, videos, payload, prepare)
+		})
+	}
 	indexChanged := false
 	offlineChanged := false
-	err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
 		if len(videos) > 0 {
 			ids := make([]string, 0, len(videos))
 			for _, video := range videos {
@@ -463,10 +444,8 @@ func (service *LibraryService) processScanPage(ctx context.Context, taskID int, 
 				}
 			}
 		}
-		return saveScanProgress(ctx, tx.Task, taskID, *payload)
-	})
-	if err != nil {
-		return fmt.Errorf("save scan page: %w", err)
+	if err := saveScanProgress(ctx, tx.Task, taskID, *payload); err != nil {
+		return err
 	}
 	if indexChanged {
 		service.tasks.NotifyLibraryChanged()
@@ -499,98 +478,103 @@ func indexDownloadedMovie(ctx context.Context, tx *ent.Tx, payload scanPayload) 
 	return record.ID, nil
 }
 
-// Reconcile runs only after every directory and page succeeded. Deletions and
-// their progress record commit together, and cannot touch another scan root.
 func (service *LibraryService) reconcileScan(ctx context.Context, taskID int, scanID string, payload *scanPayload, observed scanObservations) error {
-	err := ent.WithTx(ctx, service.database, func(tx *ent.Tx) error {
-		stale := file.And(libraryFiles(payload.Source), file.ScanIDNEQ(scanID))
-		if payload.TargetID != "" {
-			if payload.TargetFile {
-				stale = file.And(stale, file.FileIDEQ(payload.TargetID))
-			} else {
-				prefix := strings.TrimSuffix(payload.TargetPath, "/") + "/"
-				// SQLite LIKE treats '_' and '%' as patterns and folds ASCII
-				// case. Compare the literal prefix to keep sibling paths intact.
-				stale = file.And(stale, func(s *sql.Selector) {
-					s.Where(sql.ExprP("substr("+s.C(file.FieldPath)+", 1, length(?)) = ?", prefix, prefix))
-				})
-			}
+	return service.reconcileScanTx(ctx, nil, taskID, scanID, payload, observed)
+}
+
+func (service *LibraryService) reconcileScanTx(ctx context.Context, tx *ent.Tx, taskID int, scanID string, payload *scanPayload, observed scanObservations) error {
+	if tx == nil {
+		return ent.WithTx(ctx, service.database, func(innerTx *ent.Tx) error {
+			return service.reconcileScanTx(ctx, innerTx, taskID, scanID, payload, observed)
+		})
+	}
+	stale := file.And(libraryFiles(payload.Source), file.ScanIDNEQ(scanID))
+	if payload.TargetID != "" {
+		if payload.TargetFile {
+			stale = file.And(stale, file.FileIDEQ(payload.TargetID))
+		} else {
+			prefix := strings.TrimSuffix(payload.TargetPath, "/") + "/"
+			// SQLite LIKE treats '_' and '%' as patterns and folds ASCII
+			// case. Compare the literal prefix to keep sibling paths intact.
+			stale = file.And(stale, func(s *sql.Selector) {
+				s.Where(sql.ExprP("substr("+s.C(file.FieldPath)+", 1, length(?)) = ?", prefix, prefix))
+			})
 		}
-		movies, err := tx.File.Query().Where(stale).QueryMovie().IDs(ctx)
-		if err != nil {
-			return fmt.Errorf("find removed movie files: %w", err)
-		}
-		payload.Scan.RemovedFiles, err = tx.File.Delete().Where(stale).Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("remove missing file indexes: %w", err)
-		}
-		removed, err := removeUnreferencedMovies(ctx, tx, movies)
-		if err != nil {
-			return err
-		}
-		payload.Scan.RemovedMovies += removed
-		indexed := file.And(libraryFiles(payload.Source), file.ScanIDEQ(scanID))
-		if payload.OfflineTaskID != 0 {
-			files, err := tx.File.Query().Where(indexed).Select(file.FieldFileID).All(ctx)
-			if err != nil {
-				return err
-			}
-			record, err := tx.Task.Get(ctx, payload.OfflineTaskID)
-			if err != nil {
-				return err
-			}
-			ids := make([]string, 0, len(files))
-			for _, entry := range files {
-				ids = append(ids, entry.FileID)
-			}
-			record.Payload, err = tasks.SetPayloadField(record.Payload, "file_ids", ids)
-			if err != nil {
-				return err
-			}
-			if err := tx.Task.UpdateOneID(record.ID).SetPayload(record.Payload).Exec(ctx); err != nil {
-				return err
-			}
-		}
-		moviesToScrape, err := tx.File.Query().Where(indexed).QueryMovie().
-			WithFiles(func(q *ent.FileQuery) { q.Where(libraryFiles(payload.Source)) }).All(ctx)
-		if err != nil {
-			return fmt.Errorf("find scanned metadata jobs: %w", err)
-		}
-		ids := make([]int, 0, len(moviesToScrape))
-		for _, record := range moviesToScrape {
-			if record.ScrapeStatus == movie.ScrapeStatusDone {
-				ids = append(ids, record.ID)
-			}
-		}
-		snapshots, err := completedMetadataSnapshots(ctx, tx.Client(), payload.Source, ids)
-		if err != nil {
-			return err
-		}
-		for _, record := range moviesToScrape {
-			if snapshot, found := snapshots[record.ID]; found && record.ScrapeStatus == movie.ScrapeStatusDone && snapshot.matches(record, observed) {
-				cached, err := service.images.Exists(movieArtwork(record))
-				if err != nil {
-					return fmt.Errorf("check cached artwork: %w", err)
-				}
-				if cached {
-					continue
-				}
-			}
-			input := metadataPayload{Source: payload.Source, ScanTaskID: taskID, MovieID: record.ID,
-				Code: record.Code, JavDBID: valueOrZero(record.JavdbID)}
-			encoded, err := tasks.EncodePayload(input)
-			if err != nil {
-				return err
-			}
-			if err := tx.Task.Create().SetType(tasks.KindScrape.String()).SetPayload(encoded).Exec(ctx); err != nil {
-				return fmt.Errorf("enqueue movie metadata: %w", err)
-			}
-		}
-		payload.Scan.Stage = "done"
-		return saveScanProgress(ctx, tx.Task, taskID, *payload)
-	})
+	}
+	var err error
+	movies, err := tx.File.Query().Where(stale).QueryMovie().IDs(ctx)
 	if err != nil {
-		return fmt.Errorf("reconcile library: %w", err)
+		return fmt.Errorf("find removed movie files: %w", err)
+	}
+	payload.Scan.RemovedFiles, err = tx.File.Delete().Where(stale).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("remove missing file indexes: %w", err)
+	}
+	removed, err := removeUnreferencedMovies(ctx, tx, movies)
+	if err != nil {
+		return err
+	}
+	payload.Scan.RemovedMovies += removed
+	indexed := file.And(libraryFiles(payload.Source), file.ScanIDEQ(scanID))
+	if payload.OfflineTaskID != 0 {
+		files, err := tx.File.Query().Where(indexed).Select(file.FieldFileID).All(ctx)
+		if err != nil {
+			return err
+		}
+		record, err := tx.Task.Get(ctx, payload.OfflineTaskID)
+		if err != nil {
+			return err
+		}
+		ids := make([]string, 0, len(files))
+		for _, entry := range files {
+			ids = append(ids, entry.FileID)
+		}
+		record.Payload, err = tasks.SetPayloadField(record.Payload, "file_ids", ids)
+		if err != nil {
+			return err
+		}
+		if err := tx.Task.UpdateOneID(record.ID).SetPayload(record.Payload).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	moviesToScrape, err := tx.File.Query().Where(indexed).QueryMovie().
+		WithFiles(func(q *ent.FileQuery) { q.Where(libraryFiles(payload.Source)) }).All(ctx)
+	if err != nil {
+		return fmt.Errorf("find scanned metadata jobs: %w", err)
+	}
+	ids := make([]int, 0, len(moviesToScrape))
+	for _, record := range moviesToScrape {
+		if record.ScrapeStatus == movie.ScrapeStatusDone {
+			ids = append(ids, record.ID)
+		}
+	}
+	snapshots, err := completedMetadataSnapshots(ctx, tx.Client(), payload.Source, ids)
+	if err != nil {
+		return err
+	}
+	for _, record := range moviesToScrape {
+		if snapshot, found := snapshots[record.ID]; found && record.ScrapeStatus == movie.ScrapeStatusDone && snapshot.matches(record, observed) {
+			cached, err := service.images.Exists(movieArtwork(record))
+			if err != nil {
+				return fmt.Errorf("check cached artwork: %w", err)
+			}
+			if cached {
+				continue
+			}
+		}
+		input := metadataPayload{Source: payload.Source, ScanTaskID: taskID, MovieID: record.ID,
+			Code: record.Code, JavDBID: valueOrZero(record.JavdbID)}
+		encoded, err := tasks.EncodePayload(input)
+		if err != nil {
+			return err
+		}
+		if err := tx.Task.Create().SetType(tasks.KindScrape.String()).SetPayload(encoded).Exec(ctx); err != nil {
+			return fmt.Errorf("enqueue movie metadata: %w", err)
+		}
+	}
+	payload.Scan.Stage = "done"
+	if err := saveScanProgress(ctx, tx.Task, taskID, *payload); err != nil {
+		return err
 	}
 	if payload.Scan.RemovedFiles > 0 || payload.Scan.RemovedMovies > 0 {
 		service.tasks.NotifyLibraryChanged()

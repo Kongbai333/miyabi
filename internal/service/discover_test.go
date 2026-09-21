@@ -10,9 +10,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/ppxb/miyabi/internal/database"
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/drive"
 	"github.com/ppxb/miyabi/internal/ent/setting"
 	"github.com/ppxb/miyabi/internal/ent/task"
 	"github.com/ppxb/miyabi/internal/javdb"
+	"github.com/ppxb/miyabi/internal/pan"
 )
 
 func TestNewDiscoverServicePersistsDeviceWithoutSelectingRoute(t *testing.T) {
@@ -104,9 +106,13 @@ func TestProjectMoviesAddsLibraryTaskAndReleaseState(t *testing.T) {
 		SetAccountID("100").SetRootID("10").SetMovie(localMovie).Exec(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "100", LibraryDirectory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
-	}); err != nil {
+	driveSvc, err := drive.New(t.Context(), store.Client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := driveSvc.MountSource(t.Context(), domain.LibrarySource{
+		AccountID: "100", Directory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
+	}, pan.Tokens{AccessToken: "token"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Client.Task.Create().
@@ -134,7 +140,7 @@ func TestProjectMoviesAddsLibraryTaskAndReleaseState(t *testing.T) {
 
 	today := time.Now().In(time.Local)
 	tomorrow := today.AddDate(0, 0, 1).Format("2006-01-02")
-	service := &DiscoverService{database: store.Client}
+	service := &DiscoverService{database: store.Client, drive: driveSvc}
 	movies, err := service.projectMovies(t.Context(), []domain.Movie{
 		{ID: "one", Code: "ABP-001", ReleaseDate: today.Format("2006-01-02")},
 		{ID: "two", Code: "ABP-002", ReleaseDate: tomorrow},
@@ -236,7 +242,7 @@ func TestProjectionUsesSourceIDBeforeCatalogueSpelling(t *testing.T) {
 		"javdb_id": "queued-id", "code": "PREVIOUS-002",
 		"account_id": payload.Source.AccountID, "directory_id": payload.Source.Directory.ID,
 	})).SaveX(ctx)
-	service := &DiscoverService{database: db}
+	service := &DiscoverService{database: db, drive: library.drive}
 	source := []domain.Movie{
 		{ID: "known-id", Code: "作品/新版 #001"},
 		{ID: "pending-id", Code: "knb_m014"},
@@ -268,11 +274,16 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 	}
 	defer service.Close()
 	loads := 0
-	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "100", LibraryDirectory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
-	}); err != nil {
+	driveSvc, err := drive.New(t.Context(), store.Client)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := driveSvc.MountSource(t.Context(), domain.LibrarySource{
+		AccountID: "100", Directory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
+	}, pan.Tokens{AccessToken: "token"}); err != nil {
+		t.Fatal(err)
+	}
+	service.SetDrive(driveSvc)
 	project := func() MovieState {
 		t.Helper()
 		source, err := cachedJavDB(t.Context(), service, service.lists, "fixture", func(context.Context) ([]domain.Movie, error) {
@@ -308,25 +319,25 @@ func TestCachedCatalogueStillReflectsCurrentLibraryAndTaskState(t *testing.T) {
 		SetAccountID("100").SetRootID("10").SetMovie(localMovie).Exec(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "100", LibraryDirectory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
-	}); err != nil {
+	if err := driveSvc.MountSource(t.Context(), domain.LibrarySource{
+		AccountID: "100", Directory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
+	}, pan.Tokens{AccessToken: "token"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := project(); got != MovieInLibrary || loads != 1 {
 		t.Fatalf("scanned state = %s, loads = %d", got, loads)
 	}
-	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "100", LibraryDirectory: domain.LibraryDirectory{ID: "20", Path: "/Other"},
-	}); err != nil {
+	if err := driveSvc.MountSource(t.Context(), domain.LibrarySource{
+		AccountID: "100", Directory: domain.LibraryDirectory{ID: "20", Path: "/Other"},
+	}, pan.Tokens{AccessToken: "token"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := project(); got != MovieNotInLibrary || loads != 1 {
 		t.Fatalf("movie outside the mounted root = %s, loads = %d", got, loads)
 	}
-	if err := saveSetting(t.Context(), store.Client, panDirectorySetting, panLibraryDirectory{
-		AccountID: "200", LibraryDirectory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
-	}); err != nil {
+	if err := driveSvc.MountSource(t.Context(), domain.LibrarySource{
+		AccountID: "200", Directory: domain.LibraryDirectory{ID: "10", Path: "/Movies"},
+	}, pan.Tokens{AccessToken: "token"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := project(); got != MovieNotInLibrary {
