@@ -45,6 +45,10 @@ func (k Kind) String() string {
 
 // Error represents a structured domain error with a user-facing public message
 // and an optional underlying diagnostic cause.
+//
+// Errors are matched by identity: errors.Is(err, sentinel) succeeds only when
+// the same *Error value appears in the unwrap chain. Classification by Kind is
+// a separate concern; use IsKind or KindOf for that.
 type Error struct {
 	Kind    Kind
 	Message string
@@ -111,24 +115,6 @@ func (e *Error) PublicMessage() string {
 	}
 }
 
-// Is reports whether this error matches the target.
-func (e *Error) Is(target error) bool {
-	if e == nil || target == nil {
-		return e == target
-	}
-	t, ok := target.(*Error)
-	if !ok {
-		return false
-	}
-	if t.Kind != KindUnexpected && e.Kind != t.Kind {
-		return false
-	}
-	if t.Message != "" && e.Message != t.Message {
-		return false
-	}
-	return true
-}
-
 // IsKind checks if an error or any error in its unwrap chain is a domain.Error with the specified Kind.
 func IsKind(err error, kind Kind) bool {
 	var de *Error
@@ -141,6 +127,19 @@ func IsKind(err error, kind Kind) bool {
 // HasKind allows external error types to supply a domain Kind.
 type HasKind interface {
 	DomainKind() Kind
+}
+
+// PublicMessage returns the user-facing text for any error: the first
+// PublicMessage() in the unwrap chain, or the raw error text when none exists.
+func PublicMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	var public interface{ PublicMessage() string }
+	if errors.As(err, &public) {
+		return public.PublicMessage()
+	}
+	return err.Error()
 }
 
 // KindOf returns the domain Kind of the error, or KindUnexpected if not recognized.

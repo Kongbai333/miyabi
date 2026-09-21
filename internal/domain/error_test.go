@@ -52,4 +52,15 @@ func TestDomainError(t *testing.T) {
 			t.Errorf("KindOf(wrapped) = %v, want %v", KindOf(wrapped), KindInvalid)
 		}
 	})
+
+	t.Run("sentinels match by identity only", func(t *testing.T) {
+		first := E(KindInvalid, "参数无效", nil)
+		second := E(KindInvalid, "参数无效", nil)
+		if errors.Is(first, second) {
+			t.Errorf("errors.Is matched two distinct sentinels with equal fields")
+		}
+		if !errors.Is(fmt.Errorf("wrap: %w", first), first) {
+			t.Errorf("errors.Is lost the sentinel through wrapping")
+		}
+	})
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	http "github.com/bogdanfinn/fhttp"
+	"github.com/ppxb/miyabi/internal/domain"
 	"github.com/ppxb/miyabi/internal/netx"
 )
 
@@ -33,6 +34,12 @@ func (e *networkError) Error() string {
 
 func (e *networkError) Unwrap() error {
 	return e.err
+}
+
+func (e *networkError) DomainKind() domain.Kind { return domain.KindUpstream }
+
+func (e *networkError) PublicMessage() string {
+	return "无法连接 JavDB，请检查网络代理或线路设置"
 }
 
 // newTransport builds a fingerprinted API client bound to one host. The proxy

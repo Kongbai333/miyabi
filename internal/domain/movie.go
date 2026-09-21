@@ -23,28 +23,28 @@ const (
 
 // SearchOptions controls a movie search request.
 type SearchOptions struct {
-	Zone     Zone   `form:"zone"`
-	Sort     string `form:"sort"`
-	FilterBy string `form:"filter_by"`
-	Page     int    `form:"page"`
-	Limit    int    `form:"limit"`
+	Zone     Zone
+	Sort     string
+	FilterBy string
+	Page     int
+	Limit    int
 }
 
 // BrowseOptions controls a category browse request.
 type BrowseOptions struct {
 	// Zone filters category/tag browsing. Empty leaves the zone unspecified;
 	// entity movies always omit it.
-	Zone       Zone       `form:"zone"`
-	EntityType EntityType `form:"entity_type"`
-	EntityID   string     `form:"entity_id"`
-	Main       []string   `form:"main"`
-	TagIDs     []string   `form:"tag_ids"`
-	Year       string     `form:"year"`
-	Month      string     `form:"month"`
-	Sort       string     `form:"sort"`
-	Order      string     `form:"order"`
-	Page       int        `form:"page"`
-	Limit      int        `form:"limit"`
+	Zone       Zone
+	EntityType EntityType
+	EntityID   string
+	Main       []string
+	TagIDs     []string
+	Year       string
+	Month      string
+	Sort       string
+	Order      string
+	Page       int
+	Limit      int
 }
 
 type EntityType string

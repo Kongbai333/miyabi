@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ppxb/miyabi/internal/domain"
+	"github.com/ppxb/miyabi/internal/javdb"
 	"github.com/ppxb/miyabi/internal/netx"
 	"github.com/ppxb/miyabi/internal/pan"
 	"github.com/ppxb/miyabi/internal/service"
@@ -25,6 +26,13 @@ type publicError struct{ message string }
 
 func (err *publicError) Error() string         { return "internal detail: " + err.message }
 func (err *publicError) PublicMessage() string { return err.message }
+
+// proxyValidationError returns the real error produced by netx for a proxy
+// URL without a scheme, so the test pins the wire-level contract of that path.
+func proxyValidationError() error {
+	_, err := netx.NewProxyManager(netx.ProxyConfig{Enabled: true, URL: "127.0.0.1"})
+	return err
+}
 
 func errorRouter(handler gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
@@ -45,13 +53,15 @@ func TestErrorMiddlewareMapsDomainErrorsToStatusAndMessage(t *testing.T) {
 		{name: "media directory required", err: service.ErrMediaDirectoryRequired, status: http.StatusBadRequest, message: service.ErrMediaDirectoryRequired.PublicMessage()},
 		{name: "magnet not found", err: fmt.Errorf("add: %w", service.ErrMagnetNotFound), status: http.StatusBadRequest, message: service.ErrMagnetNotFound.PublicMessage()},
 		{name: "invalid progress", err: service.ErrInvalidWatchProgress, status: http.StatusBadRequest, message: service.ErrInvalidWatchProgress.PublicMessage()},
-		{name: "invalid proxy domain error", err: domain.E(domain.KindInvalid, "代理配置无效: 代理地址格式错误", netx.ErrInvalidProxy), status: http.StatusBadRequest, message: "代理配置无效: 代理地址格式错误"},
+		{name: "invalid proxy", err: proxyValidationError(), status: http.StatusBadRequest, message: "代理配置无效: 代理地址必须包含协议（如 http://）与主机地址"},
 		{name: "history source changed", err: service.ErrWatchHistorySourceChanged, status: http.StatusConflict, message: service.ErrWatchHistorySourceChanged.PublicMessage()},
 		{name: "cache busy", err: service.ErrCacheBusy, status: http.StatusConflict, message: service.ErrCacheBusy.PublicMessage()},
 		{name: "file missing", err: fmt.Errorf("影片文件不存在，请重新扫描: %w", fs.ErrNotExist), status: http.StatusNotFound, message: "影片文件不存在，请重新扫描: file does not exist"},
 		{name: "pan unauthorized", err: fmt.Errorf("list: %w", pan.ErrUnauthorized), status: http.StatusUnauthorized, message: pan.ErrUnauthorized.PublicMessage()},
 		{name: "access password", err: service.ErrAccessPassword, status: http.StatusUnauthorized, message: service.ErrAccessPassword.PublicMessage()},
 		{name: "upstream gateway error", err: domain.E(domain.KindUpstream, "上游服务异常", errors.New("javdb timeout")), status: http.StatusBadGateway, message: "上游服务异常"},
+		{name: "javdb api error", err: fmt.Errorf("get JavDB movie detail: %w", &javdb.APIError{Action: "movie", Message: "not found"}), status: http.StatusBadGateway, message: "JavDB 返回了错误：not found"},
+		{name: "javdb http error", err: fmt.Errorf("search JavDB: %w", &javdb.HTTPError{StatusCode: 503}), status: http.StatusBadGateway, message: "JavDB 服务异常（HTTP 503），请稍后重试"},
 		{name: "public message wins", err: fmt.Errorf("wrapped: %w", &publicError{message: "115 说明文案"}), status: http.StatusInternalServerError, message: "115 说明文案"},
 		{name: "unknown error leaks text", err: errors.New("UNIQUE constraint failed: movies.code"), status: http.StatusInternalServerError, message: "UNIQUE constraint failed: movies.code"},
 	} {
