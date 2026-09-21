@@ -135,7 +135,7 @@ export class BrowseHistoryStore {
     this.flushTimer = timer
     // Node timers keep the event loop alive; unref them so unit tests can exit.
     if (typeof timer === 'object' && 'unref' in timer) {
-      (timer as { unref: () => void }).unref()
+      ;(timer as { unref: () => void }).unref()
     }
   }
 

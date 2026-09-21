@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { getPageNumbers, type PageItem } from '@/lib/pagination'
+import { getPageNumbers } from '@/lib/pagination'
 import {
   Pagination,
   PaginationContent,
@@ -9,8 +9,6 @@ import {
   PaginationNext,
   PaginationPrevious
 } from '@/components/ui/pagination'
-
-export { getPageNumbers, type PageItem }
 
 export function ListPagination({
   page,
@@ -33,6 +31,34 @@ export function ListPagination({
     if (scrollToTop) window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  function renderPage(item: number) {
+    if (item === page) {
+      return (
+        <PaginationItem key={item}>
+          <PaginationLink isActive>{item}</PaginationLink>
+        </PaginationItem>
+      )
+    }
+    return (
+      <PaginationItem key={item}>
+        <PaginationLink
+          href="#"
+          aria-disabled={disabled || undefined}
+          tabIndex={disabled ? -1 : undefined}
+          className={cn(disabled && 'pointer-events-none opacity-50')}
+          onClick={e => {
+            e.preventDefault()
+            changePage(item)
+          }}
+        >
+          {item}
+        </PaginationLink>
+      </PaginationItem>
+    )
+  }
+
+  const items = totalPages === undefined ? [page] : getPageNumbers(page, totalPages)
+
   return (
     <Pagination className="py-3">
       <PaginationContent>
@@ -44,49 +70,14 @@ export function ListPagination({
           />
         </PaginationItem>
 
-        {totalPages !== undefined ? (
-          getPageNumbers(page, totalPages).map(item => {
-            if (typeof item === 'string') {
-              return (
-                <PaginationItem key={item}>
-                  <PaginationEllipsis />
-                </PaginationItem>
-              )
-            }
-            const isActive = item === page
-            return (
-              <PaginationItem key={item}>
-                <PaginationLink
-                  href="#"
-                  isActive={isActive}
-                  aria-disabled={disabled || isActive}
-                  tabIndex={disabled || isActive ? -1 : undefined}
-                  className={cn(disabled && 'pointer-events-none opacity-50')}
-                  onClick={e => {
-                    e.preventDefault()
-                    if (!disabled && !isActive) {
-                      changePage(item)
-                    }
-                  }}
-                >
-                  {item}
-                </PaginationLink>
-              </PaginationItem>
-            )
-          })
-        ) : (
-          <PaginationItem>
-            <PaginationLink
-              href="#"
-              isActive
-              aria-disabled
-              tabIndex={-1}
-              className={cn(disabled && 'pointer-events-none opacity-50')}
-              onClick={e => e.preventDefault()}
-            >
-              {page}
-            </PaginationLink>
-          </PaginationItem>
+        {items.map(item =>
+          typeof item === 'number' ? (
+            renderPage(item)
+          ) : (
+            <PaginationItem key={item}>
+              <PaginationEllipsis />
+            </PaginationItem>
+          )
         )}
 
         <PaginationItem>

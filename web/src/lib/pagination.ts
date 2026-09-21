@@ -1,26 +1,29 @@
 export type PageItem = number | 'ellipsis-left' | 'ellipsis-right'
 
+const WINDOW = 3
+// first + ellipsis + window + ellipsis + last
+const MAX_SLOTS = WINDOW + 4
+
 export function getPageNumbers(page: number, totalPages: number): PageItem[] {
-  const safeTotalPages = Math.max(1, Math.floor(totalPages))
-  if (safeTotalPages <= 7) {
-    return Array.from({ length: safeTotalPages }, (_, i) => i + 1)
-  }
+  const total = Math.max(1, Math.floor(totalPages))
+  if (total <= MAX_SLOTS) return Array.from({ length: total }, (_, i) => i + 1)
 
-  if (page <= 4) {
-    return [1, 2, 3, 4, 5, 'ellipsis-right', safeTotalPages]
-  }
+  const current = Math.min(Math.max(1, Math.floor(page)), total)
 
-  if (page >= safeTotalPages - 3) {
-    return [
-      1,
-      'ellipsis-left',
-      safeTotalPages - 4,
-      safeTotalPages - 3,
-      safeTotalPages - 2,
-      safeTotalPages - 1,
-      safeTotalPages
-    ]
-  }
+  const start = Math.min(Math.max(current - 1, 1), Math.max(1, total - WINDOW + 1))
+  const end = Math.min(total, start + WINDOW - 1)
 
-  return [1, 'ellipsis-left', page - 1, page, page + 1, 'ellipsis-right', safeTotalPages]
+  const items: PageItem[] = []
+  if (start > 1) {
+    items.push(1)
+    if (start === 3) items.push(2)
+    else if (start > 3) items.push('ellipsis-left')
+  }
+  for (let p = start; p <= end; p++) items.push(p)
+  if (end < total) {
+    if (end === total - 2) items.push(total - 1)
+    else if (end < total - 2) items.push('ellipsis-right')
+    items.push(total)
+  }
+  return items
 }

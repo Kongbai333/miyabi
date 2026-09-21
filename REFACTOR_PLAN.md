@@ -323,7 +323,7 @@ func (e *Error) Error() string; Unwrap() error; PublicMessage() string
 
 15. `lib/watch-progress.ts` 与 `features/player/watch-progress.ts` 撞名，后者改 `watch-progress-writer.ts`。
 16. `task-progress-state.ts` 与 `scan-status.ts` 两套阶段映射共享阶段定义。
-17. `shadcn` 移到 `devDependencies`；`ui/card.tsx`、`ui/pagination.tsx`、`ui/tabs.tsx` 零引用导出按需清理（`GoogleCastButton` 是 Vidstack 类型必填项，不能删）。
+17. `shadcn` 移到 `devDependencies`；`ui/card.tsx`、`ui/tabs.tsx` 零引用导出按需清理（`ui/pagination.tsx` 已于 2026-09-21 被 `ListPagination` 全量引用，不再清理；`GoogleCastButton` 是 Vidstack 类型必填项，不能删）。
 18. `client.ts` 的 `imageURL` 特判 `/api/library/artwork/` 前缀，改为后端统一返回可直接使用的 URL 后删除。
 
 不在本轮：发现页状态迁 URL、facets 数据驱动、类型生成。这些会改交互或需要装工具，等结构稳定后再议。
@@ -558,4 +558,5 @@ func (a *Aggregator) Find(ctx, ref domain.MovieRef) ([]domain.Magnet, error)
 - `config.Runtime` 的环境变量命名先内部集中，对外开放的在实现时逐个写进 README。
 - 番号识别与刮削校验（2026-09-20）：针对 `200GANA-3458` 与 `CARIB` 等前缀不一致问题，不引入静态硬匹配字典；在 M4 (B4) 落地“NFO 与文件名双向容差亲缘校验”策略，核心数字一致且前缀包含时自动放行并收敛为 NFO 标准番号。
 - 模型迁移（2026-09-20）：M2 (B1) 放弃临时类型别名（type alias）过渡方案，采用全仓一次性原子替换，避免遗留脚手架代码。
+- 分页器（2026-09-21，提交 `562f49d`、`58622d6`）：`ListPagination` 从"第 X / Y 页"文字改为 shadcn `PaginationLink / PaginationEllipsis` 页码链接，库页面同时移除"共 N 部影片 · 每页 20 部"文案；这是对"前端样式原样沿用"约束的第二次例外，3.9 清单以此为新基线。`562f49d` 的页码输入框方案已被 `58622d6` 的页码链接替代，最终不存在跳转输入框。页码算法收敛为 `lib/pagination.ts` 的纯函数并配单测：连续窗口固定 3 页（当前页 ±1），首尾页始终可点，总页数不超过 7 时全部列出，省略号不用于只遮一页的情形。链接语义沿用 shadcn 原版：当前页用 `aria-current="page"` 且不可点，禁用态用 `aria-disabled` 加 `pointer-events-none`；上一页/下一页保持仓库既有的原生 `Button`。传入 `totalPages` 的页面（库、观看历史）渲染完整页码，未传的页面（发现页，JavDB 无总数）只渲染当前页占位。
 - 任务引擎（2026-09-21）：`tasks.Queue` 不包含领域规则。完成后要发布哪个修订号由处理器的 `Finished` 钩子以 `tasks.Change` 位掩码返回，队列在事务提交后统一发布；没有钩子的处理器不触发任何修订。B2 迁出时不引入类型别名，`service` 层直接引用 `tasks.*` 与 `domain.*`。

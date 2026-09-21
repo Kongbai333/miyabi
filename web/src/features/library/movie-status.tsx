@@ -13,11 +13,7 @@ export function LibraryMovieStatus({ movie }: { movie: LibraryMovie }) {
       ) : (
         <Badge variant="outline">待刮削</Badge>
       )}
-      {!movie.watched ? (
-        <Badge variant="library">
-          新入库
-        </Badge>
-      ) : null}
+      {!movie.watched ? <Badge variant="library">新入库</Badge> : null}
     </>
   )
 }
