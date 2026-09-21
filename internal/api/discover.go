@@ -15,6 +15,7 @@ type Discoverer interface {
 	Browse(context.Context, domain.BrowseOptions) ([]service.DiscoverMovie, error)
 	MovieDetail(context.Context, string) (service.DiscoverMovieDetail, error)
 	MovieStates(context.Context, []service.MovieIdentity) ([]service.DiscoverMovieState, error)
+	MarkViewed(context.Context, string) error
 	Magnets(context.Context, string) ([]service.DiscoverMagnet, error)
 	Tags(context.Context, domain.Zone) ([]domain.TagCategory, error)
 	Media(context.Context, string) (javdb.Media, error)
@@ -124,6 +125,22 @@ func discoverBrowseHandler(discover Discoverer) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, movies)
+	}
+}
+
+func discoverMarkViewedHandler(discover Discoverer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var uri movieURI
+		if err := c.ShouldBindUri(&uri); err != nil {
+			c.Error(BadRequest(err))
+			return
+		}
+		if err := discover.MarkViewed(c.Request.Context(), uri.ID); err != nil {
+			c.Error(err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{"id": uri.ID, "viewed": true})
 	}
 }
 

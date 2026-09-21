@@ -2,14 +2,17 @@ import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
 import type { DiscoverMovie } from '@/api/discover'
+import { useMovieState } from '@/api/movie-states'
 import { MovieResourceBadges, MovieStateBadge } from '@/components/movie/movie-badges'
 import { MovieCover } from '@/components/movie/movie-cover'
 import { MovieMonitorButton } from '@/components/movie/movie-monitor-button'
 import { OverflowTooltip } from '@/components/overflow-tooltip'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
 export function DiscoverMovieCard({ movie }: { movie: DiscoverMovie }) {
+  const viewed = useMovieState(movie)?.viewed ?? false
   const monitorable = movie.release_status === 'upcoming' && movie.magnets_count === 0
   return (
     <Link
@@ -21,6 +24,7 @@ export function DiscoverMovieCard({ movie }: { movie: DiscoverMovie }) {
         movie={movie}
         description={movie.release_date}
         state={<MovieStateBadge movie={movie} />}
+        viewed={viewed}
         coverOverlay={
           monitorable ? (
             <div className="absolute top-2 right-2">
@@ -42,6 +46,7 @@ export function MovieCard({
   onCoverReady,
   coverOverlay,
   titleTooltip = true,
+  viewed = false,
   state,
   children
 }: {
@@ -51,11 +56,19 @@ export function MovieCard({
   onCoverReady?: () => void
   coverOverlay?: ReactNode
   titleTooltip?: boolean
+  viewed?: boolean
   state?: ReactNode
   children?: ReactNode
 }) {
   const title = movie.title || movie.code
-  const heading = <h3 className="truncate text-sm leading-5 font-semibold">{title}</h3>
+  // A viewed movie keeps its title readable but recedes, so the grid still scans.
+  const heading = (
+    <h3
+      className={cn('truncate text-sm leading-5 font-semibold', viewed && 'text-muted-foreground')}
+    >
+      {title}
+    </h3>
+  )
   return (
     <Card size="sm" className="h-full gap-0 overflow-hidden py-0">
       <div className="relative flex aspect-3/2 items-center justify-center overflow-hidden bg-muted">

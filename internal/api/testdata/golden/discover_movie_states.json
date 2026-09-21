@@ -2,14 +2,17 @@
   {
     "id": "movie-exact",
     "library_id": 7,
-    "state": "in_library"
+    "state": "in_library",
+    "viewed": false
   },
   {
     "id": "movie-near",
-    "state": "not_in_library"
+    "state": "not_in_library",
+    "viewed": false
   },
   {
     "id": "movie-saving",
-    "state": "saving"
+    "state": "saving",
+    "viewed": true
   }
 ]

@@ -3,7 +3,7 @@ import { queryOptions, type QueryClient } from '@tanstack/react-query'
 import type { DiscoverMovie } from '@/api/discover'
 
 export type MovieIdentity = Pick<DiscoverMovie, 'id' | 'code'>
-export type MovieLocalState = Pick<DiscoverMovie, 'state' | 'library_id'>
+export type MovieLocalState = Pick<DiscoverMovie, 'state' | 'library_id'> & { viewed: boolean }
 export type MovieStateResult = MovieLocalState & { id: string }
 type StateLoader = (movie: MovieIdentity, signal: AbortSignal) => Promise<MovieLocalState>
 type PendingState = {
@@ -18,7 +18,7 @@ export const movieStateKeys = {
   movie: (id: string) => ['movie-states', id] as const
 }
 
-const emptyState: MovieLocalState = { state: 'not_in_library' }
+const emptyState: MovieLocalState = { state: 'not_in_library', viewed: false }
 
 // Cards and detail views share a query per catalogue ID. Batch subscriptions
 // from the same render so a grid does not make a request for every badge.

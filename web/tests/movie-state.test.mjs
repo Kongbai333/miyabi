@@ -55,7 +55,7 @@ test('a grid and detail share movie state and batch requests without fetching ca
   const requests = []
   const load = createMovieStateLoader(async movies => {
     requests.push(movies)
-    return movies.map(({ id }) => ({ id, state, ...(state === 'in_library' && { library_id: 7 }) }))
+    return movies.map(({ id }) => ({ id, state, viewed: false, ...(state === 'in_library' && { library_id: 7 }) }))
   })
   const cards = Array.from({ length: 24 }, (_, id) =>
     observe(t, client, movieStateOptions(load, { id: String(id), code: `ABP-${id}` }))
@@ -72,7 +72,7 @@ test('a grid and detail share movie state and batch requests without fetching ca
   assert.equal(catalogueLoads, 1)
   assert.equal(client.getQueryState(['discover', 'movie', '0']).isInvalidated, false)
   for (const view of [cards[0], detail]) {
-    assert.deepEqual(view.getCurrentResult().data, { state: 'in_library', library_id: 7 })
+    assert.deepEqual(view.getCurrentResult().data, { state: 'in_library', library_id: 7, viewed: false })
   }
 
   // A slower catalogue response carries stale local fields but cannot roll back the shared state.
@@ -80,13 +80,13 @@ test('a grid and detail share movie state and batch requests without fetching ca
     ...catalogue.getCurrentResult().data,
     state: 'not_in_library'
   })
-  assert.deepEqual(detail.getCurrentResult().data, { state: 'in_library', library_id: 7 })
+  assert.deepEqual(detail.getCurrentResult().data, { state: 'in_library', library_id: 7, viewed: false })
 })
 
 test('newly opened and previously inactive movies read current state after a missed event', async t => {
   const client = queryClient(t)
   let state = 'saving'
-  const load = createMovieStateLoader(async movies => movies.map(({ id }) => ({ id, state })))
+  const load = createMovieStateLoader(async movies => movies.map(({ id }) => ({ id, state, viewed: false })))
   const identity = { id: 'one', code: 'ABP-001', state: 'in_library', library_id: 99 }
   const first = observe(t, client, movieStateOptions(load, identity))
   await settled(first)
@@ -96,13 +96,13 @@ test('newly opened and previously inactive movies read current state after a mis
   await invalidateMovieStates(client)
   const reopened = observe(t, client, movieStateOptions(load, identity))
   await settled(reopened)
-  assert.deepEqual(reopened.getCurrentResult().data, { state: 'not_in_library' })
+  assert.deepEqual(reopened.getCurrentResult().data, { state: 'not_in_library', viewed: false })
 
   const newMovie = observe(t, client, movieStateOptions(load, { ...identity, id: 'two' }))
   // Old catalogue projections never provide playback before local verification.
-  assert.deepEqual(newMovie.getCurrentResult().data, { state: 'not_in_library' })
+  assert.deepEqual(newMovie.getCurrentResult().data, { state: 'not_in_library', viewed: false })
   await settled(newMovie)
-  assert.deepEqual(newMovie.getCurrentResult().data, { state: 'not_in_library' })
+  assert.deepEqual(newMovie.getCurrentResult().data, { state: 'not_in_library', viewed: false })
 })
 
 test('switching source clears playback and late responses cannot restore it', async t => {
@@ -115,7 +115,7 @@ test('switching source clears playback and late responses cannot restore it', as
   })
   const observer = observe(t, client, movieStateOptions(load, { id: 'one', code: 'ABP-001' }))
   await setImmediate()
-  requests[0].resolve([{ id: 'one', state: 'in_library', library_id: 1 }])
+  requests[0].resolve([{ id: 'one', state: 'in_library', library_id: 1, viewed: false }])
   await settled(observer)
 
   const previousRefresh = invalidateMovieStates(client)
@@ -124,21 +124,21 @@ test('switching source clears playback and late responses cannot restore it', as
   const reset = resetMovieStates(client)
   await setImmediate()
   assert.equal(requests.length, 3)
-  assert.deepEqual(observer.getCurrentResult().data, { state: 'not_in_library' })
+  assert.deepEqual(observer.getCurrentResult().data, { state: 'not_in_library', viewed: false })
 
-  requests[2].resolve([{ id: 'one', state: 'not_in_library' }])
+  requests[2].resolve([{ id: 'one', state: 'not_in_library', viewed: false }])
   await reset
-  requests[1].resolve([{ id: 'one', state: 'in_library', library_id: 1 }])
+  requests[1].resolve([{ id: 'one', state: 'in_library', library_id: 1, viewed: false }])
   await previousRefresh
   await setImmediate()
-  assert.deepEqual(client.getQueryData(movieStateKeys.movie('one')), { state: 'not_in_library' })
+  assert.deepEqual(client.getQueryData(movieStateKeys.movie('one')), { state: 'not_in_library', viewed: false })
 })
 
 test('state requests respect the batch limit and skip cancelled subscriptions', async () => {
   const requests = []
   const load = createMovieStateLoader(async movies => {
     requests.push(movies)
-    return movies.map(({ id }) => ({ id, state: 'not_in_library' }))
+    return movies.map(({ id }) => ({ id, state: 'not_in_library', viewed: false }))
   })
   const controller = new AbortController()
   const aborted = load({ id: 'aborted', code: 'ABP-000' }, controller.signal)
@@ -164,7 +164,7 @@ test('an incomplete state response fails only the missing movie and can recover 
   const load = createMovieStateLoader(async movies =>
     movies
       .filter(({ id }) => !missing || id !== 'one')
-      .map(({ id }) => ({ id, state: 'in_library', library_id: 7 }))
+      .map(({ id }) => ({ id, state: 'in_library', library_id: 7, viewed: false }))
   )
   const one = observe(t, client, movieStateOptions(load, { id: 'one', code: 'ABP-001' }))
   const two = observe(t, client, movieStateOptions(load, { id: 'two', code: 'ABP-002' }))
@@ -174,7 +174,7 @@ test('an incomplete state response fails only the missing movie and can recover 
   missing = false
   await invalidateMovieStates(client)
   assert.equal(one.getCurrentResult().isSuccess, true)
-  assert.deepEqual(one.getCurrentResult().data, { state: 'in_library', library_id: 7 })
+  assert.deepEqual(one.getCurrentResult().data, { state: 'in_library', library_id: 7, viewed: false })
 })
 
 test('playable downloads remain active while background processing continues', () => {

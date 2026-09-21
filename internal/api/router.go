@@ -87,6 +87,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	monitorAPI.DELETE("/:id", monitorRemoveHandler(deps.Monitor))
 	monitorAPI.POST("/:id/retry", monitorRetryHandler(deps.Monitor))
 	api.GET("/discover/movies", discoverBrowseHandler(deps.Discover))
+	api.PUT("/discover/movies/:id/viewed", discoverMarkViewedHandler(deps.Discover))
 	api.POST("/discover/movie-states", discoverMovieStatesHandler(deps.Discover))
 	api.GET("/discover/search", discoverSearchHandler(deps.Discover))
 	api.GET("/discover/tags", discoverTagsHandler(deps.Discover))

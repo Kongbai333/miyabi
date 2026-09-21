@@ -20,6 +20,9 @@ type DiscoverMovieState struct {
 	ID        string     `json:"id"`
 	LibraryID int        `json:"library_id,omitempty"`
 	State     MovieState `json:"state"`
+	// Viewed marks a movie whose detail page has been opened, so the discover
+	// grid can dim titles the user already looked at.
+	Viewed bool `json:"viewed"`
 }
 
 // MovieStates only reads the local index and tasks. Catalogue cache lifetimes
@@ -34,6 +37,15 @@ func (service *DiscoverService) MovieStates(ctx context.Context, identities []Mo
 	for index, item := range identities {
 		ids[index], codes[index] = item.ID, codeid.Normalize(item.Code)
 		result[index] = DiscoverMovieState{ID: item.ID, State: MovieNotInLibrary}
+	}
+	// Viewed state is independent of the library source, so it still resolves
+	// when no 115 account is configured.
+	viewed, err := service.viewedMovies(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for index := range result {
+		result[index].Viewed = viewed[identities[index].ID]
 	}
 	source, err := loadLibrarySource(ctx, service.database)
 	if err != nil || source == nil {

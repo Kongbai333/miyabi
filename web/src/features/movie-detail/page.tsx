@@ -1,4 +1,7 @@
+import { useEffect } from 'react'
+
 import { useDiscoverMagnets, useDiscoverMovie } from '@/api/discover'
+import { useMarkMovieViewed } from '@/api/movie-states'
 import { AppPage } from '@/components/app-page'
 import { ErrorState, InlineError } from '@/components/error-state'
 import { PageBackButton } from '@/components/page-back-button'
@@ -11,6 +14,12 @@ import { MovieDetailSkeleton } from './skeleton'
 export function MovieDetailPage({ movieId }: { movieId: string }) {
   const detail = useDiscoverMovie(movieId)
   const magnets = useDiscoverMagnets(movieId)
+
+  // Opening this page is the "viewed" signal the discover grid dims titles by.
+  const { mutate: markViewed } = useMarkMovieViewed()
+  useEffect(() => {
+    markViewed(movieId)
+  }, [movieId, markViewed])
 
   return (
     <AppPage className="sm:px-6 lg:px-8" contentClassName="max-w-7xl gap-8">

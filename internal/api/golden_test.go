@@ -78,7 +78,7 @@ func (goldenDiscover) MovieStates(context.Context, []service.MovieIdentity) ([]s
 	return []service.DiscoverMovieState{
 		{ID: "movie-exact", LibraryID: 7, State: service.MovieInLibrary},
 		{ID: "movie-near", State: service.MovieNotInLibrary},
-		{ID: "movie-saving", State: service.MovieSaving},
+		{ID: "movie-saving", State: service.MovieSaving, Viewed: true},
 	}, nil
 }
 
