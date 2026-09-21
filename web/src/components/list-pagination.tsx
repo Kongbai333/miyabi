@@ -20,14 +20,20 @@ export function ListPagination({
   page: number
   totalPages?: number
   hasMore: boolean
-  disabled: boolean
+  disabled?: boolean
   scrollToTop?: boolean
   onPageChange: (page: number) => void
 }) {
   function changePage(nextPage: number) {
+    if (nextPage === page) return
     onPageChange(nextPage)
     if (scrollToTop) window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  // A library that fits on one page has nothing to page through, so the bar
+  // stays out of the way rather than offering a dead "previous" and "next".
+  const singlePage = page <= 1 && !hasMore && (totalPages === undefined || totalPages <= 1)
+  if (singlePage) return null
 
   // An endpoint that only reports has_more cannot name its last page, so the
   // numbered window and the last-page button stay hidden there instead of

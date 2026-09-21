@@ -161,15 +161,16 @@ export function LibraryPage({
               }
             />
           )}
-          {page > 1 || library.data.total > 0 ? (
-            <ListPagination
-              page={page}
-              totalPages={Math.max(1, Math.ceil(library.data.total / LIBRARY_PAGE_SIZE))}
-              hasMore={library.data.has_more}
-              disabled={library.isFetching}
-              onPageChange={onPageChange}
-            />
-          ) : null}
+          {/* Whether there is anything to page through is the bar's own
+              business, and a background refetch must not grey it out: every
+              library change invalidates the list, which would make the numbers
+              flicker under the cursor. */}
+          <ListPagination
+            page={page}
+            totalPages={Math.max(1, Math.ceil(library.data.total / LIBRARY_PAGE_SIZE))}
+            hasMore={library.data.has_more}
+            onPageChange={onPageChange}
+          />
         </>
       )}
     </AppPage>
