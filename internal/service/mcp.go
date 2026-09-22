@@ -234,9 +234,7 @@ func (service *MCPService) MagnetSearch(ctx context.Context, query string, limit
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return MagnetSearchResult{}, fmt.Errorf("decode magnet search: %w", err)
 	}
-	if result.Items == nil {
-		result.Items = []MagnetItem{}
-	}
+	result.Items = nonNull(result.Items)
 	return result, nil
 }
 
@@ -253,6 +251,7 @@ func (service *MCPService) MagnetPreview(ctx context.Context, link string) (Magn
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return MagnetPreview{}, fmt.Errorf("decode magnet preview: %w", err)
 	}
+	result.Data.Screenshots = nonNull(result.Data.Screenshots)
 	return result, nil
 }
 
@@ -269,6 +268,7 @@ func (service *MCPService) MagnetFiles(ctx context.Context, link string) (Magnet
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return MagnetFiles{}, fmt.Errorf("decode magnet files: %w", err)
 	}
+	result.Files = nonNullFiles(result.Files)
 	return result, nil
 }
 
@@ -283,10 +283,7 @@ func (service *MCPService) Collections(ctx context.Context) ([]MagnetCollection,
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return nil, fmt.Errorf("decode magnet collections: %w", err)
 	}
-	if result.Collections == nil {
-		result.Collections = []MagnetCollection{}
-	}
-	return result.Collections, nil
+	return nonNull(result.Collections), nil
 }
 
 func (service *MCPService) Collection(ctx context.Context, key string) (MagnetCollectionDetail, error) {
@@ -302,9 +299,7 @@ func (service *MCPService) Collection(ctx context.Context, key string) (MagnetCo
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return MagnetCollectionDetail{}, fmt.Errorf("decode magnet collection: %w", err)
 	}
-	if result.Items == nil {
-		result.Items = []MagnetCollectionItem{}
-	}
+	result.Items = nonNullItems(result.Items)
 	return result, nil
 }
 
@@ -379,9 +374,7 @@ func (service *MCPService) ShareDetail(ctx context.Context, code string) (Magnet
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return MagnetShareDetail{}, fmt.Errorf("decode magnet share detail: %w", err)
 	}
-	if result.Items == nil {
-		result.Items = []MagnetCollectionItem{}
-	}
+	result.Items = nonNullItems(result.Items)
 	return result, nil
 }
 
@@ -436,6 +429,35 @@ func normalizeMCPSettings(settings MCPSettings) MCPSettings {
 	}
 	settings.Token = strings.TrimSpace(settings.Token)
 	return settings
+}
+
+// The server writes null where it has nothing to list, which is what an absent
+// array looks like too. Decoding that leaves a nil slice, and encoding nil
+// writes null straight back out, so the API would hand a client a document its
+// own type says is a list.
+func nonNull[T any](values []T) []T {
+	if values == nil {
+		return []T{}
+	}
+	return values
+}
+
+// A file tree nests, and every level of it carries the same null.
+func nonNullFiles(files []MagnetFile) []MagnetFile {
+	files = nonNull(files)
+	for index := range files {
+		files[index].SubFiles = nonNullFiles(files[index].SubFiles)
+	}
+	return files
+}
+
+// A collection item lists its tags, which the panel reads the same way.
+func nonNullItems(items []MagnetCollectionItem) []MagnetCollectionItem {
+	items = nonNull(items)
+	for index := range items {
+		items[index].Tags = nonNull(items[index].Tags)
+	}
+	return items
 }
 
 // infoHash reads the info hash out of a magnet URI, or takes a bare hash, and

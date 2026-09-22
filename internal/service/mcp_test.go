@@ -418,3 +418,69 @@ func TestTestReportsTheTools(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 }
+
+// assertNoNull encodes a response the way the API would and refuses a null,
+// which is what a client reading .length on a list cannot survive.
+func assertNoNull(t *testing.T, name string, value any) {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "null") {
+		t.Fatalf("%s still carries a null: %s", name, encoded)
+	}
+}
+
+// The server writes null for a list it has nothing to put in, and a nil slice
+// encodes back to null, so an untouched decode would answer a client with a
+// document its own type says is a list.
+func TestEmptyListsComeBackAsArrays(t *testing.T) {
+	hash := "magnet:?xt=urn:btih:1F5F629F420FE6FA53FCDDB10F1DAF030E7B62EC"
+	link := `"magnet_link":"` + hash + `"`
+	service, _ := mcpFixture(t, map[string]string{
+		"magnet_search":              `{"count":0,"items":null,"query":"ABP-001","source":"local"}`,
+		"magnet_preview":             `{` + link + `,"size":0,"data":{"count":0,"error":"whatslink cannot parse this magnet","name":"","type":"UNKNOWN","screenshots":null}}`,
+		"magnet_files":               `{` + link + `,"total_size":0,"file_count":2,"files":[{"id":"a","name":"ABP-001","is_dir":true,"sub_files":null},{"id":"b","name":"ABP-001.mp4","sub_files":null}]}`,
+		"favorite_collections_list":  `{"collections":null,"count":0}`,
+		"favorite_collection_detail": `{"collection":{"is_default":true,"key":"default","label":"default"},"count":1,"items":[{"name":"ABP-001","tagsText":null,` + link + `}]}`,
+		"favorite_share_detail":      `{"code":"u63ky5vmvg46","count":0,"items":null,"label":"default"}`,
+	})
+	ctx := t.Context()
+
+	search, err := service.MagnetSearch(ctx, "ABP-001", 7)
+	if err != nil || len(search.Items) != 0 {
+		t.Fatalf("search = %+v err=%v", search, err)
+	}
+	assertNoNull(t, "search", search)
+
+	preview, err := service.MagnetPreview(ctx, hash)
+	if err != nil || len(preview.Data.Screenshots) != 0 || preview.Data.Error == "" {
+		t.Fatalf("preview = %+v err=%v", preview, err)
+	}
+	assertNoNull(t, "preview", preview)
+
+	files, err := service.MagnetFiles(ctx, hash)
+	if err != nil || len(files.Files) != 2 || len(files.Files[0].SubFiles) != 0 || len(files.Files[1].SubFiles) != 0 {
+		t.Fatalf("files = %+v err=%v", files, err)
+	}
+	assertNoNull(t, "files", files)
+
+	collections, err := service.Collections(ctx)
+	if err != nil || len(collections) != 0 {
+		t.Fatalf("collections = %+v err=%v", collections, err)
+	}
+	assertNoNull(t, "collections", collections)
+
+	detail, err := service.Collection(ctx, "default")
+	if err != nil || len(detail.Items) != 1 || len(detail.Items[0].Tags) != 0 {
+		t.Fatalf("collection = %+v err=%v", detail, err)
+	}
+	assertNoNull(t, "collection", detail)
+
+	share, err := service.ShareDetail(ctx, "u63ky5vmvg46")
+	if err != nil || len(share.Items) != 0 {
+		t.Fatalf("share = %+v err=%v", share, err)
+	}
+	assertNoNull(t, "share", share)
+}
