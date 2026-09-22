@@ -122,3 +122,75 @@ func Normalize(raw string) string {
 	}
 	return value
 }
+
+// IsEquivalent reports whether two catalogue numbers identify the same movie
+// under bidirectional tolerance rules: a distributor that prefixed its own
+// digits to the catalogue prefix (200GANA-3458 vs GANA-3458, 259LUXU-1899 vs
+// LUXU-1899), or a studio that prefixed a date code (CARIB-060326-001 vs
+// 060326-001). It is deliberately narrow: only the sequence decides whether two
+// numbers describe the same release, and only a pure digit prefix may differ.
+func IsEquivalent(a, b string) bool {
+	normA := Normalize(a)
+	normB := Normalize(b)
+	if normA == "" || normB == "" {
+		return false
+	}
+	if normA == normB {
+		return true
+	}
+
+	prefixA, seqA := splitCode(normA)
+	prefixB, seqB := splitCode(normB)
+
+	// Core sequence must be non-empty and equal.
+	if seqA == "" || seqA != seqB {
+		return false
+	}
+
+	// Case 1: a bare date code against a studio-prefixed one, such as
+	// "060326-001" against "CARIB-060326-001".
+	if prefixA == "" || prefixB == "" {
+		return numericPattern.MatchString(seqA)
+	}
+
+	// Case 2: a distributor prepended its digits to the catalogue prefix, such
+	// as "200GANA" against "GANA" or "259LUXU" against "LUXU".
+	if strings.HasSuffix(prefixA, prefixB) {
+		leading := strings.TrimSuffix(prefixA, prefixB)
+		if isDigits(leading) {
+			return true
+		}
+	}
+	if strings.HasSuffix(prefixB, prefixA) {
+		leading := strings.TrimSuffix(prefixB, prefixA)
+		if isDigits(leading) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// splitCode separates the catalogue prefix from the sequence it numbers. A bare
+// date code has no prefix, and so does a number with no separator at all.
+func splitCode(norm string) (string, string) {
+	if numericPattern.MatchString(norm) {
+		return "", norm
+	}
+	if index := strings.IndexByte(norm, '-'); index > 0 {
+		return norm[:index], norm[index+1:]
+	}
+	return "", norm
+}

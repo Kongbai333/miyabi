@@ -224,3 +224,42 @@ func FuzzNormalizeRetainsCompleteNumbers(f *testing.F) {
 		}
 	})
 }
+
+// A tolerance match decides whether two spellings of one catalogue number reach
+// the same movie, so a wrong yes is worse than a wrong no: the cases that must
+// stay distinct matter as much as the ones that must match.
+func TestIsEquivalent(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		a    string
+		b    string
+		want bool
+	}{
+		{name: "identical", a: "SSIS-589", b: "SSIS-589", want: true},
+		{name: "case insensitive", a: "ssis-589", b: "SSIS-589", want: true},
+		{name: "punctuation normalized", a: "SSIS_589", b: "SSIS-589", want: true},
+		{name: "fc2 normalization", a: "FC2-1234567", b: "FC2-PPV-1234567", want: true},
+		{name: "distributor prefix 200GANA vs GANA", a: "200GANA-3458", b: "GANA-3458", want: true},
+		{name: "distributor prefix 259LUXU vs LUXU", a: "259LUXU-1899", b: "LUXU-1899", want: true},
+		{name: "distributor prefix 300MIUM vs MIUM", a: "300MIUM-001", b: "MIUM-001", want: true},
+		{name: "studio prefix with date code", a: "CARIB-060326-001", b: "060326-001", want: true},
+		{name: "1pondo prefix with date code", a: "1PONDO-060326-001", b: "060326-001", want: true},
+		{name: "reject different numbers", a: "GANA-3458", b: "GANA-3459", want: false},
+		{name: "reject different studios same number", a: "IPX-123", b: "SSIS-123", want: false},
+		{name: "reject non-digit prefix suffix", a: "AB-123", b: "B-123", want: false},
+		{name: "reject non-date code without prefix", a: "ABC-12345", b: "12345", want: false},
+		{name: "reject unknown digits before a date", a: "ABC-12345", b: "060326-001", want: false},
+		{name: "reject empty a", a: "", b: "SSIS-589", want: false},
+		{name: "reject empty b", a: "SSIS-589", b: "", want: false},
+		{name: "reject both empty", a: "", b: "", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// The rule is bidirectional: either spelling may be the longer one.
+			for _, pair := range [][2]string{{test.a, test.b}, {test.b, test.a}} {
+				if got := IsEquivalent(pair[0], pair[1]); got != test.want {
+					t.Fatalf("IsEquivalent(%q, %q) = %t, want %t", pair[0], pair[1], got, test.want)
+				}
+			}
+		})
+	}
+}

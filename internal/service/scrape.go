@@ -240,7 +240,9 @@ func findNFO[T any](code string, shared bool, files []T, name func(T) string) (T
 		candidates++
 		candidate = entry
 		if !aliasFound {
-			if candidateCode, _ := codeid.Parse(filename); candidateCode == code {
+			// A sidecar can carry the distributor's spelling of the same number,
+			// such as 200GANA-3458.nfo beside GANA-3458.mp4.
+			if candidateCode, ok := codeid.Parse(filename); ok && codeid.IsEquivalent(candidateCode, code) {
 				alias, aliasFound = entry, true
 			}
 		}
@@ -272,7 +274,9 @@ func (service *ScrapeService) directoryNFO(ctx context.Context, input metadataPa
 	if code == "" {
 		code, _ = codeid.Parse(entry.Name)
 	}
-	if code != input.Code {
+	// A distributor-prefixed spelling in the NFO still describes the same film,
+	// so only a number that names a different one is a conflict.
+	if !codeid.IsEquivalent(code, input.Code) {
 		return nfo.Movie{}, nil, false, domain.E(domain.KindConflict, fmt.Sprintf("NFO %s 的番号与视频不一致", entry.Name), nil)
 	}
 	doc.Code = code
