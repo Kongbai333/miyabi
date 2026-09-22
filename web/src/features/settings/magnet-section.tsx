@@ -78,7 +78,10 @@ export function MagnetSection() {
           />
         )}
       </SettingRow>
-      <SettingRow title="访问 token" description="服务方发放的 bearer token。明文保存并回显。">
+      <SettingRow
+        title="访问 token"
+        description="服务方发放的 bearer token，与站点登录是两套凭据。它在生成或重置后只显示一次，先复制再回来填；此页明文保存并回显。"
+      >
         {settings.isPending ? (
           <Skeleton className="h-9 w-full sm:w-72" />
         ) : (
