@@ -61,6 +61,9 @@ func identifyVideo(file pan.File) scanVideo {
 }
 
 func (service *LibraryService) identifyScanVideos(payload scanPayload, videos []scanVideo, previous map[string]*ent.File) {
+	// Every kind of video the scan collected carries a number by now: the walk
+	// parses the filename, and an NFO may have replaced it with the catalogue's
+	// own spelling.
 	for index := range videos {
 		video := &videos[index]
 		old := previous[video.ID]
@@ -75,9 +78,88 @@ func (service *LibraryService) identifyScanVideos(payload scanPayload, videos []
 			old.Edges.Movie != nil && old.Edges.Movie.JavdbID != nil:
 			video.Code = old.Edges.Movie.Code
 		default:
-			video.Code, _ = codeid.Parse(video.Name)
+			if video.Code == "" {
+				video.Code, _ = codeid.Parse(video.Name)
+			}
 		}
 	}
+}
+
+// resolveSingleNFO gives the only sidecar of a directory the last word on its
+// catalogue number. Releases prefix the publisher's own digits to the catalogue
+// prefix (200GANA-3458) or to a date (CARIB-060326-001), and JavDB lists neither
+// spelling, so the number the sidecar carries is the one that resolves. It
+// rewrites nothing it cannot vouch for: a video whose number names a different
+// film stops the whole directory, which is what a folder of several films looks
+// like.
+func (service *LibraryService) resolveSingleNFO(ctx context.Context, source LibrarySource, version uint64, sidecars []pan.File, videos []scanVideo) error {
+	if len(sidecars) != 1 {
+		return nil
+	}
+	sidecarCode, hasSidecarCode := codeid.Parse(sidecars[0].Name)
+	unnamed, discrepancy, eligible := false, false, false
+	for _, video := range videos {
+		if !canIdentifyVideo(video.File) {
+			continue
+		}
+		eligible = true
+		switch {
+		case video.Code == "":
+			unnamed = true
+		case hasSidecarCode && !strings.EqualFold(video.Code, sidecarCode) && codeid.IsEquivalent(video.Code, sidecarCode):
+			discrepancy = true
+		}
+	}
+	if !eligible || (!unnamed && !discrepancy) {
+		return nil
+	}
+	canonical := sidecarCode
+	if canonical == "" || unnamed {
+		// The sidecar's name states no number, or a video has none of its own:
+		// either way only the document can say which film this is.
+		code, err := service.readScanNFO(ctx, source, version, sidecars[0])
+		if err != nil {
+			return err
+		}
+		if code != "" {
+			canonical = code
+		}
+	}
+	if canonical == "" {
+		return nil
+	}
+	for _, video := range videos {
+		if canIdentifyVideo(video.File) && video.Code != "" && !codeid.IsEquivalent(video.Code, canonical) {
+			return nil
+		}
+	}
+	for index := range videos {
+		if !canIdentifyVideo(videos[index].File) {
+			continue
+		}
+		if videos[index].Code == "" || codeid.IsEquivalent(videos[index].Code, canonical) {
+			videos[index].Code = canonical
+		}
+	}
+	return nil
+}
+
+// readScanNFO reads the catalogue number a sidecar's document states, falling
+// back to the number in the sidecar's own name.
+func (service *LibraryService) readScanNFO(ctx context.Context, source LibrarySource, version uint64, sidecar pan.File) (string, error) {
+	body, err := service.readSidecar(ctx, source, version, sidecar, 2<<20)
+	if err != nil {
+		return "", fmt.Errorf("read scan NFO: %w", err)
+	}
+	doc, err := nfo.Decode(body)
+	if err != nil {
+		return "", err
+	}
+	code := codeid.Normalize(doc.Code)
+	if code == "" {
+		code, _ = codeid.Parse(sidecar.Name)
+	}
+	return code, nil
 }
 
 func (service *LibraryService) StartScan(ctx context.Context) (TaskInfo, error) {
@@ -178,13 +260,11 @@ func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
 		if err := service.reportScan(ctx, job.ID, payload); err != nil {
 			return err
 		}
-		var unidentified []scanVideo
+		var videos []scanVideo
 		var sidecars []pan.File
-		directoryCodes := make(map[string]bool)
 		err := walkFilePages(ctx, func(offset int) (pan.FilePage, error) {
 			return service.scanPage(ctx, source, version, directory.id, offset)
 		}, func(page pan.FilePage) (bool, error) {
-			videos := make([]scanVideo, 0, len(page.Files))
 			observed.add(directory.id, page.Files)
 			for _, entry := range page.Files {
 				if seen[entry.ID] {
@@ -204,67 +284,35 @@ func (service *LibraryService) Scan(ctx context.Context, job TaskJob) error {
 					continue
 				}
 				payload.Scan.VideoFiles++
-				videos = append(videos, scanVideo{File: entry})
+				videos = append(videos, identifyVideo(entry))
 			}
 			if !page.HasMore {
 				payload.Scan.DirectoriesScanned++
-			}
-			if err := savePage(directory.path, videos, func(identified []scanVideo) []scanVideo {
-				matched := identified[:0]
-				for _, video := range identified {
-					if video.Code != "" {
-						matched = append(matched, video)
-						payload.Scan.MatchedFiles++
-						codes[video.Code] = true
-						directoryCodes[video.Code] = true
-					} else {
-						payload.Scan.UnmatchedFiles++
-						unidentified = append(unidentified, video)
-					}
-				}
-				payload.Scan.Movies = len(codes)
-				return matched
-			}); err != nil {
-				return false, err
 			}
 			return true, nil
 		})
 		if err != nil {
 			return fmt.Errorf("scan %s: %w", directory.path, err)
 		}
-		// A single NFO describes a single-movie directory, including videos
-		// whose filenames do not contain a recognizable code.
-		if len(sidecars) == 1 && len(directoryCodes) <= 1 && slices.ContainsFunc(unidentified, func(video scanVideo) bool {
-			return canIdentifyVideo(video.File)
-		}) {
-			body, err := service.readSidecar(ctx, source, version, sidecars[0], 2<<20)
-			if err != nil {
-				return fmt.Errorf("read scan NFO: %w", err)
-			}
-			doc, err := nfo.Decode(body)
-			if err != nil {
-				return err
-			}
-			code := codeid.Normalize(doc.Code)
-			if code == "" {
-				code, _ = codeid.Parse(sidecars[0].Name)
-			}
-			if code != "" && (len(directoryCodes) == 0 || directoryCodes[code]) {
-				matched := 0
-				for i := range unidentified {
-					if canIdentifyVideo(unidentified[i].File) {
-						unidentified[i].Code = code
-						matched++
+		// The directory's own NFO decides the catalogue number before anything is
+		// written, so a distributor's spelling of it never reaches the library.
+		if err := service.resolveSingleNFO(ctx, source, version, sidecars, videos); err != nil {
+			return fmt.Errorf("resolve %s NFO: %w", directory.path, err)
+		}
+		for begin := 0; begin < len(videos); begin += scanPageSize {
+			chunk := videos[begin:min(begin+scanPageSize, len(videos))]
+			if err := savePage(directory.path, chunk, func(identified []scanVideo) []scanVideo {
+				for _, video := range identified {
+					if video.Code != "" {
+						payload.Scan.MatchedFiles++
+						codes[video.Code] = true
+					} else {
+						payload.Scan.UnmatchedFiles++
 					}
 				}
-				codes[code] = true
 				payload.Scan.Movies = len(codes)
-				payload.Scan.MatchedFiles += matched
-				payload.Scan.UnmatchedFiles -= matched
-			}
-		}
-		for start := 0; start < len(unidentified); start += 100 {
-			if err := savePage(directory.path, unidentified[start:min(start+100, len(unidentified))], nil); err != nil {
+				return identified
+			}); err != nil {
 				return err
 			}
 		}
@@ -288,7 +336,7 @@ func (service *LibraryService) scanPage(ctx context.Context, source LibrarySourc
 		return pan.FilePage{}, err
 	}
 	page, err := withPanSourceToken(ctx, service.drive, state, func(token string) (pan.FilePage, error) {
-		return service.drive.client.List(ctx, token, directoryID, offset, 100)
+		return service.drive.client.List(ctx, token, directoryID, offset, scanPageSize)
 	})
 	if err != nil {
 		return pan.FilePage{}, err
@@ -311,7 +359,11 @@ func isVideo(name string) bool {
 	}
 }
 
-const minVideoSize int64 = 100 << 20
+const (
+	minVideoSize int64 = 100 << 20
+	// scanPageSize bounds one 115 listing and the write that follows it.
+	scanPageSize = 100
+)
 
 func canIdentifyVideo(entry pan.File) bool {
 	return !entry.IsDirectory && isVideo(entry.Name) && entry.Size >= minVideoSize
@@ -322,8 +374,8 @@ func (service *LibraryService) indexScanPage(ctx context.Context, taskID int, sc
 }
 
 // Read identities and write their file associations in the same transaction.
-// prepare accounts for identified videos and can defer unknown files until the
-// directory's NFO is available; deferred writes take their own fresh snapshot.
+// prepare accounts for the identified videos and may drop the ones the caller
+// does not want indexed.
 func (service *LibraryService) processScanPage(ctx context.Context, taskID int, scanID, directoryPath string, videos []scanVideo, payload *scanPayload, prepare func([]scanVideo) []scanVideo) error {
 	indexChanged := false
 	offlineChanged := false
