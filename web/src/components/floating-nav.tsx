@@ -14,6 +14,9 @@ export type FloatingNavItem = {
   icon: LucideIcon
   label: string
   to: FloatingNavTo
+  // A section can keep a place its own route does not hold, such as the page and
+  // filters of a list, and the nav returns there instead of to the bare route.
+  search?: Record<string, unknown>
 }
 
 type FloatingNavProps = {
@@ -46,6 +49,7 @@ function NavItem({ item, isActive }: NavItemProps) {
       <TooltipTrigger asChild>
         <Link
           to={item.to}
+          search={item.search}
           className={cn(
             buttonVariants({ variant: isActive ? 'default' : 'ghost', size: 'icon' }),
             'size-11 sm:size-9'

@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
 import { AppPage } from '@/components/app-page'
@@ -8,6 +9,7 @@ import {
   parseLibrarySearch,
   type LibrarySearch
 } from '@/features/library/filter-params'
+import { rememberLibrarySearch } from '@/features/library/last-view'
 import { LibraryPage } from '@/features/library/page'
 
 export const Route = createFileRoute('/')({
@@ -26,6 +28,10 @@ function LibraryRoute() {
   const page = search.page ?? 1
   const group = search.group ?? 0
   const filter = libraryFilterOf(search)
+
+  // A link elsewhere in the app returns to the page the user left, and only this
+  // route knows what that is.
+  useEffect(() => rememberLibrarySearch(search), [search])
 
   return (
     <LibraryPage
