@@ -141,3 +141,21 @@
     scrollbar-gutter: stable;
   }
 }
+
+/*
+ * Radix hides the page scrollbar while a select, dropdown or dialog is open, and
+ * compensates for the width it removed by giving the body a right margin of the
+ * same size (react-remove-scroll measures window.innerWidth - clientWidth, then
+ * injects body[data-scroll-locked] { margin-right: <gap>px }).
+ *
+ * That compensation is meant for a viewport whose scrollbar disappears. Ours
+ * never does: html reserves the gutter with scrollbar-gutter: stable, so the
+ * layout is already still and the margin only narrows the page, sliding centred
+ * content a few pixels to the left for as long as the popup is open.
+ * "html body" outranks the injected "body" rule, and both stay unlayered so the
+ * cascade compares their specificity rather than their layer.
+ */
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
+  padding-right: 0 !important;
+}
